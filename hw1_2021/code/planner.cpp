@@ -41,9 +41,13 @@ using namespace std;
 #define NUMOFDIRS 8
 
 // Point in 2-D space
+
+//**Will have to change this to make effecient
 struct point2d_int
 {
     int x, y;
+
+    // std::vector<std::pair<int, int>>;
 
 };
 
@@ -52,6 +56,11 @@ struct point2d_int
 
 class Search {
 
+    struct point_vector
+    {
+        std::vector<std::pair<int, int>> point;
+    };
+
     //Cell that robot will visit
     struct cell
     {
@@ -59,6 +68,7 @@ class Search {
         int g_value{INT_MAX};
         int f_value{INT_MAX};
         bool in_open_list{false};
+        // int cost = getMapValue(location.x, location.y);
     };
 
     struct f_value_compare
@@ -69,9 +79,12 @@ class Search {
         }
     };
 
+    //Make constructor class to initialize variables
+
 
     public:
     double* map;
+    double* target_traj;
     int row;
     int col;
     int robotposeX;
@@ -80,36 +93,79 @@ class Search {
     int goalY;
     int x_size;
     int y_size;
-    point2d_int goal;
-    int costSoFar;
-    int totalCost;
+    int collision_thresh;
+    int target_steps;
+    point2d_int start_point;
+    point2d_int goal_point;
+
+    int cost_so_far;
+    int total_cost;
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+    int directions = 8;
 
     //Declaring iterator to cell vector
     std::vector<cell>::iterator cell_iterator;
 
     using priority_queue = std::priority_queue<cell, std::vector<cell>, f_value_compare>;
     using closed_map = std::unordered_map<int, bool>;
-    std::unordered_map<int, int> parent;
+    std::unordered_map<int, int> PARENT;
+
 
     point2d_int astar();
-    point2d_int getLocationFromIndex();
-    int getIndexFromLocation();
+    point2d_int getLocationFromIndex(int);
+    int getIndexFromLocation(point2d_int);
 
-    void getPath();
-    int getHeuristic();
+    int getHeuristic(int, int);
     bool checkCellValid();
     int getPathCost();
     void getPathSteps();
     void getGoal();
-    void getNeighbors();
+    int getMapValue(int, int);
+    // cell getCell(int, int);
+    std::vector<std::pair<int, int>> getPath();
 
+    std::vector<std::pair<int, int>> getNeighbors(point2d_int);
 
 
 };
 
-inline point2d_int Search::getLocationFromIndex(int index)
+std::vector<std::pair<int, int>> Search::getPath()
+{
+    std::vector<std::pair<int, int>> path;
+    point2d_int goal = {goalX, goalY};
+    point2d_int robot = {robotposeX, robotposeY};
+    int current_index = getIndexFromLocation(goal); //Initially index of goal
+    int robot_index = getIndexFromLocation(robot);
+
+
+    while(robot_index != current_index)
+    {
+        path.push_back(std::make_pair(getLocationFromIndex(current_index).x, getLocationFromIndex(current_index).y));
+        current_index = PARENT[current_index];
+
+    }
+    path.push_back(std::make_pair(robotposeX, robotposeY));
+    // std::reverse(path.begin(), path.end());
+
+    return path;
+}
+
+int Search::getHeuristic(int x, int y)
+{
+    return (int)sqrt(((x-goalX)*(x-goalX) + (y-goalY)*(y-goalY)));
+}
+
+void Search::getGoal()
+{
+    goalX = (int) target_traj[target_steps-1];
+    goalY = (int) target_traj[target_steps-1+target_steps];
+
+}
+
+//Can make functions Inline??
+
+point2d_int Search::getLocationFromIndex(int index)
 {
     int x, y;
     x = index % x_size;
@@ -121,46 +177,109 @@ inline point2d_int Search::getLocationFromIndex(int index)
     return p; 
 }
 
-inline int Search::getIndexFromLocation(point2d_int location)
+int Search::getIndexFromLocation(point2d_int location)
 {
     int index;
+
+    // (location.y -1 ??)
     index = location.x + (location.y * x_size);
     return index;
 }
+
+int Search::getMapValue(int newx, int newy)
+{
+    return (int)map[GETMAPINDEX(newx, newy, x_size, y_size)];
+}
+
+// cell Search::getCell(int x, int y)
+// {
+//     cell Cell;
+//     Cell.location = {x, y};
+//     return Cell;
+// }
+
+std::vector<std::pair<int, int>> Search::getNeighbors(point2d_int cell_location)
+{
+    std::vector<std::pair<int, int>> neighbors;
+    for (int i = 0; i < directions; ++i )
+    {
+        int newx = cell_location.x + dX[i];
+        int newy = cell_location.y + dY[i];
+
+        int map_val = getMapValue(newx, newy);
+
+        if ((map_val >= 0) && (map_val < collision_thresh))  //if free
+            {
+                neighbors.push_back({newx, newy});
+                // neighbors.push_back(std::make_pair(newx, newy));
+            }
+    }
+    return neighbors;
+}
+
 
 point2d_int Search::astar(){
 
     priority_queue OPEN;
     closed_map CLOSED;
+    // parent_map PARENT;
+    // std::vector<std::pair<int, int>> neighbors;
 
     int start_index = 0;
     point2d_int start_point;
-    start_point = getLocationFromIndex(int start_index);
-    cell start;
+    start_point = getLocationFromIndex(start_index);
+    cell start, neighbor_cell;
     start.location = start_point;
     start.g_value = 0;
     start.f_value = 0;
 
+    
+
     OPEN.push(start);
-    parent[start_point] = start_point;
+    PARENT[start_index] = start_index;
 
-    // while(!OPEN.empty()) {
-    //     cell best = OPEN.pop();
+    while(!OPEN.empty()) {
+        cell best = OPEN.top();
+        OPEN.pop();
+
+        robotposeX = best.location.x;
+        robotposeY = best.location.y;
+
+        if (getIndexFromLocation(best.location) == getIndexFromLocation(goal_point)){
+            break;
+        }
+
+        CLOSED[getIndexFromLocation(best.location)] = true;
+
+        for (auto &neighbor : getNeighbors(best.location))
+        {
+            int n_row = neighbor.first;
+            int n_col = neighbor.second;
+            neighbor_cell.location = {n_row, n_col};
+            // cell neighbor_cell = getCell(n_row, n_col);
+            //Check if cell has been visited or not
+            //Col vs row order??
+            if (CLOSED[getIndexFromLocation({n_row, n_col})])
+            {
+                continue;
+            }
+            int new_cost = best.g_value + getMapValue(n_row, n_col);
+            if (new_cost < neighbor_cell.g_value)
+            {
+                neighbor_cell.g_value = new_cost;
+                neighbor_cell.f_value = neighbor_cell.g_value + getHeuristic(n_row, n_col);
+                neighbor_cell.in_open_list = true;
+                OPEN.push(neighbor_cell);
+                PARENT[getIndexFromLocation(neighbor_cell.location)] = getIndexFromLocation(best.location);
+            }
+            
+        }
 
 
-    // }
+    }
 
 }
 
-void a_star(
-        int robotposeX,
-        int robotposeY,
-        int goalX,
-        int goalY
-        )
-{
-
-}
 
 inline point2d_int greedy(
         double*	map,
