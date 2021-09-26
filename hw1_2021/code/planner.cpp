@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <iostream>
 #include <unordered_map>
+#include <queue>
+#include <vector>
+#include <chrono>
 
 using namespace std;
 
@@ -37,34 +40,143 @@ using namespace std;
 
 #define NUMOFDIRS 8
 
-static void planner(
-        double*	map,
-        int collision_thresh,
-        int x_size,
-        int y_size,
-        int robotposeX,
-        int robotposeY,
-        int target_steps,
-        double* target_traj,
-        int targetposeX,
-        int targetposeY,
-        int curr_time,
-        double* action_ptrtargettrajV
-        )
+// Point in 2-D space
+struct point2d_int
 {
-    // 8-connected grid
+    int x, y;
+
+};
+
+
+
+
+class Search {
+
+    //Cell that robot will visit
+    struct cell
+    {
+        point2d_int location;
+        int g_value{INT_MAX};
+        int f_value{INT_MAX};
+        bool in_open_list{false};
+    };
+
+    struct f_value_compare
+    {
+        bool operator()(const cell &c1, const cell &c2)
+        {
+            return c1.f_value > c2.f_value;
+        }
+    };
+
+
+    public:
+    double* map;
+    int row;
+    int col;
+    int robotposeX;
+    int robotposeY;
+    int goalX;
+    int goalY;
+    int x_size;
+    int y_size;
+    point2d_int goal;
+    int costSoFar;
+    int totalCost;
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
-    
-    // for now greedily move towards the final target position,
-    // but this is where you can put your planner
 
-    int goalposeX = (int) target_traj[target_steps-1];
-    int goalposeY = (int) target_traj[target_steps-1+target_steps];
-    // printf("robot: %d %d;\n", robotposeX, robotposeY);
-    // printf("goal: %d %d;\n", goalposeX, goalposeY);
+    //Declaring iterator to cell vector
+    std::vector<cell>::iterator cell_iterator;
 
-    int bestX = 0, bestY = 0; // robot will not move if greedy action leads to collision
+    using priority_queue = std::priority_queue<cell, std::vector<cell>, f_value_compare>;
+    using closed_map = std::unordered_map<int, bool>;
+    std::unordered_map<int, int> parent;
+
+    point2d_int astar();
+    point2d_int getLocationFromIndex();
+    int getIndexFromLocation();
+
+    void getPath();
+    int getHeuristic();
+    bool checkCellValid();
+    int getPathCost();
+    void getPathSteps();
+    void getGoal();
+    void getNeighbors();
+
+
+
+};
+
+inline point2d_int Search::getLocationFromIndex(int index)
+{
+    int x, y;
+    x = index % x_size;
+    y = index / x_size;
+    point2d_int p;
+    p.x = x;
+    p.y = y;
+
+    return p; 
+}
+
+inline int Search::getIndexFromLocation(point2d_int location)
+{
+    int index;
+    index = location.x + (location.y * x_size);
+    return index;
+}
+
+point2d_int Search::astar(){
+
+    priority_queue OPEN;
+    closed_map CLOSED;
+
+    int start_index = 0;
+    point2d_int start_point;
+    start_point = getLocationFromIndex(int start_index);
+    cell start;
+    start.location = start_point;
+    start.g_value = 0;
+    start.f_value = 0;
+
+    OPEN.push(start);
+    parent[start_point] = start_point;
+
+    // while(!OPEN.empty()) {
+    //     cell best = OPEN.pop();
+
+
+    // }
+
+}
+
+void a_star(
+        int robotposeX,
+        int robotposeY,
+        int goalX,
+        int goalY
+        )
+{
+
+}
+
+inline point2d_int greedy(
+        double*	map,
+        int collision_thresh,
+        int robotposeX,
+        int robotposeY,
+        int goalposeX,
+        int goalposeY,
+        int x_size,
+        int y_size
+        )
+{
+    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+
+    int bestX = 0, bestY = 0;
     double olddisttotarget = (double)sqrt(((robotposeX-goalposeX)*(robotposeX-goalposeX) + (robotposeY-goalposeY)*(robotposeY-goalposeY)));
     double disttotarget;
     for(int dir = 0; dir < NUMOFDIRS; dir++)
@@ -88,8 +200,46 @@ static void planner(
     }
     robotposeX = robotposeX + bestX;
     robotposeY = robotposeY + bestY;
-    action_ptr[0] = robotposeX;
-    action_ptr[1] = robotposeY;
+
+    struct point2d_int p;
+    p.x = robotposeX;
+    p.y = robotposeY;
+
+    return p;
+
+}
+static void planner(
+        double*	map,
+        int collision_thresh,
+        int x_size,
+        int y_size,
+        int robotposeX,
+        int robotposeY,
+        int target_steps,
+        double* target_traj,
+        int targetposeX,
+        int targetposeY,
+        int curr_time,
+        double* action_ptr
+        )
+{
+    // 8-connected grid
+    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+    
+    // for now greedily move towards the final target position,
+    // but this is where you can put your planner
+
+    int goalposeX = (int) target_traj[target_steps-1];
+    int goalposeY = (int) target_traj[target_steps-1+target_steps];
+    // printf("robot: %d %d;\n", robotposeX, robotposeY);
+    // printf("goal: %d %d;\n", goalposeX, goalposeY);
+
+    struct point2d_int r;
+    r = greedy(map, collision_thresh, robotposeX, robotposeY, goalposeX, goalposeY, x_size, y_size);
+
+    action_ptr[0] = r.x;
+    action_ptr[1] = r.y;
     
     return;
 }
