@@ -51,7 +51,7 @@ class Cell
         int y;
         int g_value;
         int f_value;
-        // int parent;
+        int h_value;
     Cell()
     {};
 
@@ -61,7 +61,7 @@ class Cell
         this->y = y;
         this->g_value = INT_MAX;
         this->f_value = INT_MAX;
-        // this->parent = -1;
+        this->h_value = INT_MAX;
     }
 
 };
@@ -74,10 +74,27 @@ struct f_value_compare
     }
 };
 
+struct h_value_compare
+{
+    bool operator()(const Cell &c1, const Cell &c2)
+    {
+        return c1.h_value > c2.h_value;
+    }
+};
 
+// 8-connected grid
+int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+
+//A-star
 priority_queue<Cell, vector<Cell>, f_value_compare> OPEN;
 unordered_map<int, bool> CLOSED;
 unordered_map<int, int> PARENT;
+
+//Backward Dijkstra
+priority_queue<Cell, vector<Cell>, h_value_compare> OPEN_D;
+unordered_map<int, int> HEURISTIC_D;
+unordered_map<int, bool> EXPANDED_D;
 
 pair<int,int> getLocationFromIndex(int index, int x_size, int y_size)
 {
@@ -87,46 +104,83 @@ pair<int,int> getLocationFromIndex(int index, int x_size, int y_size)
     return p;
 }
 
-int getHeuristic(int x, int y, int goalposeX, int goalposeY)
+int getEuclidHeuristic(int x, int y, int goalposeX, int goalposeY)
 {
     return (int)sqrt(((x-goalposeX)*(x-goalposeX) + (y-goalposeY)*(y-goalposeY)));
 
 }
 
-static void planner(
-        double*	map,
-        int collision_thresh,
-        int x_size,
-        int y_size,
-        int robotposeX,
-        int robotposeY,
-        int target_steps,
-        double* target_traj,
-        int targetposeX,
-        int targetposeY,
-        int curr_time,
-        double* action_ptr
-        )
+void getDijkstraHeuristic(double *map, int collision_thresh, int x_size, int y_size, int goalposeX, int goalposeY)
 {
-    // 8-connected grid
-    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
-    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
-    
-    // for now greedily move towards the final target position,
-    // but this is where you can put your planner
+
+    Cell target = Cell(goalposeX, goalposeY);
+    target.h_value = 0;
+    HEURISTIC_D[GETMAPINDEX(target.x, target.y, x_size, y_size)] = 0;
+
+    OPEN_D.push(target);
+
+    while(!OPEN_D.empty())
+    {
+        Cell s = OPEN_D.top();
+        OPEN_D.pop();
+
+        int s_idx = GETMAPINDEX(s.x, s.y, x_size, y_size);
+
+        if (EXPANDED_D[s_idx] == true) continue;
+
+        EXPANDED_D[s_idx] = true;
+        HEURISTIC_D[s_idx] = s.h_value;
+
+        for(int dir = 0; dir < NUMOFDIRS; dir++)
+        {
+            int newx = s.x + dX[dir];
+            int newy = s.y + dY[dir];
+            Cell neighbor_cell = Cell(newx, newy);
+            int neighbor_idx = GETMAPINDEX(newx,newy,x_size,y_size);
+            if(EXPANDED_D[neighbor_idx] ==true) continue;
+                    
+            if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size)
+            {
+                if (((int)map[neighbor_idx] >= 0) && ((int)map[neighbor_idx] < collision_thresh))  //if free
+                {
+                    
+                    int map_value = (int)map[neighbor_idx];
+                    int new_cost = s.h_value + map_value;
+
+                    if (neighbor_cell.h_value > new_cost)
+                    {
+                        HEURISTIC_D[neighbor_idx] = new_cost;
+                        neighbor_cell.h_value = new_cost;
+                        OPEN_D.push(neighbor_cell);
+                    }
+                }
+            }            
+
+        }
+
+        
+
+
+    }
+
+}
+
+pair<int,int> aStar(double* map,
+                    int collision_thresh,
+                    int x_size,
+                    int y_size,
+                    int robotposeX, 
+                    int robotposeY,
+                    int goalposeX,
+                    int goalposeY)
+{
 
     Cell start_cell = Cell(robotposeX, robotposeY);
-
-    int goalposeX = (int) target_traj[target_steps-1];
-    int goalposeY = (int) target_traj[target_steps-1+target_steps];
-    // int goalposeX = targetposeX;
-    // int goalposeY = targetposeY;
-    // printf("robot: %d %d;\n", robotposeX, robotposeY);
-    // printf("goal: %d %d;\n", goalposeX, goalposeY);
+    start_cell.g_value = 0;
+    start_cell.f_value = 0;
 
     OPEN.push(start_cell);
     int start_idx = GETMAPINDEX(start_cell.x, start_cell.y, x_size, y_size);
-    // node_info[start_idx] = start_cell;
     PARENT[start_idx] = -1;
 
 
@@ -135,16 +189,13 @@ static void planner(
         Cell best = OPEN.top();
         OPEN.pop();
 
-        if (CLOSED[GETMAPINDEX(best.x, best.y, x_size, y_size)] == true)
-        {
-            continue;
-        }
+        if (CLOSED[GETMAPINDEX(best.x, best.y, x_size, y_size)] == true) continue;
         
         CLOSED[GETMAPINDEX(best.x, best.y, x_size, y_size)] = true;
 
         if (best.x == goalposeX && best.y == goalposeY)
         {
-            cout << "Reached Goal" << endl;
+            // cout << "Reached Goal" << endl;
             break;
         }
 
@@ -167,7 +218,9 @@ static void planner(
                     if (neighbor_cell.g_value > new_cost)
                     {
                         neighbor_cell.g_value = new_cost;
-                        neighbor_cell.f_value = neighbor_cell.g_value + 100*getHeuristic(neighbor_cell.x, neighbor_cell.y, goalposeX, goalposeY);
+                        // neighbor_cell.f_value = neighbor_cell.g_value + 100*getEuclidHeuristic(neighbor_cell.x, neighbor_cell.y, goalposeX, goalposeY);
+                        neighbor_cell.f_value = neighbor_cell.g_value + 100*HEURISTIC_D[neighbor_idx];
+
                         OPEN.push(neighbor_cell);
                         PARENT[neighbor_idx] = GETMAPINDEX(best.x,best.y,x_size,y_size);
                     }
@@ -184,37 +237,116 @@ static void planner(
     while(current_index != start_idx)
     {
         path.push_back(current_index);
-        // current_index = node_info[current_index].parent;
         current_index = PARENT[current_index];
-        // cout << "idx ..." << current_index << endl;
     }
     
-    pair<int,int> nextAction = getLocationFromIndex(path.back(), x_size, y_size);
-    
-    // int bestX = 0, bestY = 0; // robot will not move if greedy action leads to collision
-    // double olddisttotarget = (double)sqrt(((robotposeX-goalposeX)*(robotposeX-goalposeX) + (robotposeY-goalposeY)*(robotposeY-goalposeY)));
-    // double disttotarget;
-    // for(int dir = 0; dir < NUMOFDIRS; dir++)
-    // {
-    //     int newx = robotposeX + dX[dir];
-    //     int newy = robotposeY + dY[dir];
+    return getLocationFromIndex(path.back(), x_size, y_size);
 
-    //     if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size)
-    //     {
-    //         if (((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh))  //if free
-    //         {
-    //             disttotarget = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
-    //             if(disttotarget < olddisttotarget)
-    //             {
-    //                 olddisttotarget = disttotarget;
-    //                 bestX = dX[dir];
-    //                 bestY = dY[dir];
-    //             }
-    //         }
-    //     }
-    // }
-    // robotposeX = robotposeX;
-    // robotposeY = robotposeY;
+}
+
+pair<int,int> greedy(
+        double*	map,
+        int collision_thresh,
+        int robotposeX,
+        int robotposeY,
+        int goalposeX,
+        int goalposeY,
+        int x_size,
+        int y_size
+        )
+{
+    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+
+    int bestX = 0, bestY = 0;
+    double olddisttotarget = (double)sqrt(((robotposeX-goalposeX)*(robotposeX-goalposeX) + (robotposeY-goalposeY)*(robotposeY-goalposeY)));
+    double disttotarget;
+    for(int dir = 0; dir < NUMOFDIRS; dir++)
+    {
+        int newx = robotposeX + dX[dir];
+        int newy = robotposeY + dY[dir];
+
+        if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size)
+        {
+            if (((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] >= 0) && ((int)map[GETMAPINDEX(newx,newy,x_size,y_size)] < collision_thresh))  //if free
+            {
+                disttotarget = (double)sqrt(((newx-goalposeX)*(newx-goalposeX) + (newy-goalposeY)*(newy-goalposeY)));
+                if(disttotarget < olddisttotarget)
+                {
+                    olddisttotarget = disttotarget;
+                    bestX = dX[dir];
+                    bestY = dY[dir];
+                }
+            }
+        }
+    }
+    robotposeX = robotposeX + bestX;
+    robotposeY = robotposeY + bestY;
+
+    pair<int,int> p;
+    p.first = robotposeX;
+    p.second = robotposeY;
+
+    return p;
+
+}
+
+static void planner(
+        double*	map,
+        int collision_thresh,
+        int x_size,
+        int y_size,
+        int robotposeX,
+        int robotposeY,
+        int target_steps,
+        double* target_traj,
+        int targetposeX,
+        int targetposeY,
+        int curr_time,
+        double* action_ptr
+        )
+{
+
+    
+    // for now greedily move towards the final target position,
+    // but this is where you can put your planner
+
+    // Cell start_cell = Cell(robotposeX, robotposeY);
+
+    int goalposeX = (int) target_traj[target_steps-1];
+    int goalposeY = (int) target_traj[target_steps-1+target_steps];
+
+    if (robotposeX == goalposeX && robotposeY == goalposeY)
+    {
+        action_ptr[0] = robotposeX;
+        action_ptr[1] = robotposeY;
+        return;   
+    }
+
+    // cout << "Target Steps = " << target_steps << endl;
+    
+    if (curr_time == 0) 
+    {
+        getDijkstraHeuristic(map, collision_thresh, x_size, y_size, goalposeX, goalposeY);
+        // auto it = HEURISTIC_D.begin();
+        // cout << it->first << " : " << it->second << endl;
+        // for (auto const &pair: HEURISTIC_D)
+        // {
+            // cout << pair.first << " : " << pair.second << endl;
+        // }
+    // cout << HEURISTIC_D << endl;
+    }
+
+    pair<int,int> nextAction = aStar(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, goalposeX, goalposeY);
+
+    // pair<int,int> nextAction = greedy(map, collision_thresh, robotposeX, robotposeY, goalposeX, goalposeY, x_size, y_size);
+
+    // cout << "No. of cells in Map = " << x_size*y_size << endl;
+    // cout << HEURISTIC_D.size() << endl;
+
+    // action_ptr[0] = robotposeX;
+    // action_ptr[1] = robotposeY;
+
     action_ptr[0] = nextAction.first;
     action_ptr[1] = nextAction.second;
     
