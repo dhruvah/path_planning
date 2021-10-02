@@ -51,25 +51,26 @@ struct point2d_int
 
 };
 
+struct cell
+{
+    point2d_int location;
 
+    int g_value{INT_MAX};
+    int f_value{INT_MAX};
+    bool in_open_list{false};
+    // int cost = getMapValue(location.x, location.y);
+};
 
 
 class Search {
 
-    struct point_vector
+    struct point_2d
     {
-        std::vector<std::pair<int, int>> point;
+        pair<int, int> point;
     };
 
     //Cell that robot will visit
-    struct cell
-    {
-        point2d_int location;
-        int g_value{INT_MAX};
-        int f_value{INT_MAX};
-        bool in_open_list{false};
-        // int cost = getMapValue(location.x, location.y);
-    };
+
 
     struct f_value_compare
     {
@@ -84,35 +85,59 @@ class Search {
 
     public:
     double* map;
-    double* target_traj;
-    int row;
-    int col;
-    int robotposeX;
-    int robotposeY;
-    int goalX;
-    int goalY;
-    int x_size;
-    int y_size;
-    int collision_thresh;
+    int collision_thresh;    
+    int x_size, y_size;
+    int robotposeX, robotposeY;
     int target_steps;
-    point2d_int start_point;
-    point2d_int goal_point;
-
+    double* target_traj;
+    int targetposeX, targetposeY;
+    int curr_time;
+    int goalposeX, goalposeY;
     int cost_so_far;
     int total_cost;
     int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
     int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
     int directions = 8;
 
-    //Declaring iterator to cell vector
-    std::vector<cell>::iterator cell_iterator;
-
-    using priority_queue = std::priority_queue<cell, std::vector<cell>, f_value_compare>;
-    using closed_map = std::unordered_map<int, bool>;
     std::unordered_map<int, int> PARENT;
 
 
-    point2d_int astar();
+    Search(double *map,
+           int collision_thresh,
+           int x_size,
+           int y_size,
+           int robotposeX,
+           int robotposeY,
+           int target_steps,
+           double *target_traj,
+           int targetposeX,
+           int targetposeY,
+           int curr_time
+    )
+    {
+        this->map = map;
+        this->collision_thresh = collision_thresh;
+        this->x_size = x_size;
+        this->y_size = y_size;
+        this->robotposeX = robotposeX;
+        this->robotposeY = robotposeY;
+        this->target_steps = target_steps;
+        this->target_traj = target_traj;
+        this->goalposeX = goalposeX;
+        this->goalposeY = goalposeY;
+        this->curr_time = curr_time;
+
+
+    }
+
+
+    //Declaring iterator to cell vector
+    std::vector<cell>::iterator cell_iterator;
+
+    std::vector<cell> getNeighbors(point2d_int);
+
+    void astar();
+    point2d_int astarExecute();
     point2d_int getLocationFromIndex(int);
     int getIndexFromLocation(point2d_int);
 
@@ -120,32 +145,88 @@ class Search {
     bool checkCellValid();
     int getPathCost();
     void getPathSteps();
-    void getGoal();
+    point2d_int getStart();
+    point2d_int getGoal();
     int getMapValue(int, int);
     // cell getCell(int, int);
-    std::vector<std::pair<int, int>> getPath();
-
-    std::vector<std::pair<int, int>> getNeighbors(point2d_int);
+    std::vector<int> getPath();
 
 
+
+    void print_map();
 };
 
-std::vector<std::pair<int, int>> Search::getPath()
+std::vector<cell> Search::getNeighbors(point2d_int cell_location)
 {
-    std::vector<std::pair<int, int>> path;
-    point2d_int goal = {goalX, goalY};
+    // cout << "I am here in Neighbors " << endl;
+    // std::vector<std::pair<int, int>> neighbors;
+    std::vector<cell> neighbors;
+    cell neighbor;
+    for (int i = 0; i < directions; i++ )
+    {
+        int newx = cell_location.x + dX[i];
+        int newy = cell_location.y + dY[i];
+
+        int map_val = getMapValue(newx, newy);
+
+        if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size)
+        {
+            if ((map_val >= 0) && (map_val < collision_thresh))  //if free
+                {
+                    neighbor.location.x = newx;
+                    neighbor.location.y = newy;
+                    neighbors.push_back(neighbor);
+                    // std::cout << newx << " " << newy << std::endl;
+                    // neighbors.push_back({newx, newy});
+                    // neighbors.push_back(std::make_pair(newx, newy));
+                }
+        }
+    }
+    cout << "Neighbor Size =" <<neighbors.size() << endl;
+    return neighbors;
+}
+
+std::vector<int> Search::getPath()
+{
+    std::vector<int> path;
+    point2d_int goal = {goalposeX, goalposeY};
     point2d_int robot = {robotposeX, robotposeY};
     int current_index = getIndexFromLocation(goal); //Initially index of goal
     int robot_index = getIndexFromLocation(robot);
+    int parent_current_index;
 
 
-    while(robot_index != current_index)
+    cout << "Current Index = " << current_index << endl;
+    cout << "Robot Index = " << robot_index << endl;
+
+    for (auto const &pair: PARENT)
     {
-        path.push_back(std::make_pair(getLocationFromIndex(current_index).x, getLocationFromIndex(current_index).y));
-        current_index = PARENT[current_index];
+        // cout << "{" << pair.first << ": "<< pair.second << "}\n";
+        
+        if (current_index == robot_index)
+        {
+            break;
+        }
+        path.push_back(current_index);
+
+        parent_current_index = PARENT[current_index];
+
+        // cout << "Current Index = " << current_index << endl;
+        // cout << "Parent of current Index = " << parent_current_index << endl;
+        current_index = parent_current_index;
 
     }
-    path.push_back(std::make_pair(robotposeX, robotposeY));
+    // while(current_index != robot_index)
+    // {
+    //     // cout << "I am getting the path" << endl;
+
+    //     // cout << "Current Index = " << current_index << endl;
+    //     // cout << "Robot Index = " << robot_index << endl;
+    //     path.push_back(current_index);
+    //     current_index = PARENT[current_index];
+
+    // }
+    // path.push_back(std::make_pair(robotposeX, robotposeY));
     // std::reverse(path.begin(), path.end());
 
     return path;
@@ -153,130 +234,184 @@ std::vector<std::pair<int, int>> Search::getPath()
 
 int Search::getHeuristic(int x, int y)
 {
-    return (int)sqrt(((x-goalX)*(x-goalX) + (y-goalY)*(y-goalY)));
+    return (int)sqrt(((x-goalposeX)*(x-goalposeX) + (y-goalposeY)*(y-goalposeY)));
 }
 
-void Search::getGoal()
+point2d_int Search::getStart()
 {
-    goalX = (int) target_traj[target_steps-1];
-    goalY = (int) target_traj[target_steps-1+target_steps];
+    point2d_int start;
+    start.x = robotposeX;
+    start.y = robotposeY;
+    return start;
+}
 
+point2d_int Search::getGoal()
+{
+    point2d_int goal;
+    int goalX = (int) target_traj[target_steps-1];
+    int goalY = (int) target_traj[target_steps-1+target_steps];
+    goal.x = goalX;
+    goal.y = goalY;
+    return goal;
 }
 
 //Can make functions Inline??
 
 point2d_int Search::getLocationFromIndex(int index)
 {
-    int x, y;
-    x = index % x_size;
-    y = index / x_size;
     point2d_int p;
-    p.x = x;
-    p.y = y;
+
+    p.x = (int)(index % x_size) + 1;
+    p.y = (int)(index / x_size) + 1;
+
+    if (p.x == 0 || p.y ==0 )
+    {
+        cout << "Index to Location ERROR" <<endl;
+    }
 
     return p; 
 }
 
 int Search::getIndexFromLocation(point2d_int location)
 {
-    int index;
+
 
     // (location.y -1 ??)
-    index = location.x + (location.y * x_size);
+    int index = location.x - 1 + ((location.y -1 ) * x_size);
+    
+    if (index == 0)
+    {
+        cout << "Location to Index ERROR" << endl;
+    }
+
     return index;
 }
 
 int Search::getMapValue(int newx, int newy)
 {
+    
+    
     return (int)map[GETMAPINDEX(newx, newy, x_size, y_size)];
 }
 
-// cell Search::getCell(int x, int y)
-// {
-//     cell Cell;
-//     Cell.location = {x, y};
-//     return Cell;
-// }
-
-std::vector<std::pair<int, int>> Search::getNeighbors(point2d_int cell_location)
+void Search::print_map()
 {
-    std::vector<std::pair<int, int>> neighbors;
-    for (int i = 0; i < directions; ++i )
+    auto it = PARENT.begin();
+    cout << it->first << " : " << it->second << endl;
+    cout << "SIZE of PARENT MAP = " << PARENT.size() << endl;
+    for (auto const &pair: PARENT)
     {
-        int newx = cell_location.x + dX[i];
-        int newy = cell_location.y + dY[i];
-
-        int map_val = getMapValue(newx, newy);
-
-        if ((map_val >= 0) && (map_val < collision_thresh))  //if free
-            {
-                neighbors.push_back({newx, newy});
-                // neighbors.push_back(std::make_pair(newx, newy));
-            }
+        cout << "{" << pair.first << ": "<< pair.second << "}\n";
     }
-    return neighbors;
 }
 
 
-point2d_int Search::astar(){
+void Search::astar(){
 
-    priority_queue OPEN;
-    closed_map CLOSED;
-    // parent_map PARENT;
-    // std::vector<std::pair<int, int>> neighbors;
+    std::priority_queue<cell, std::vector<cell>, f_value_compare> OPEN;
+    std::unordered_map<int, bool> CLOSED;
 
-    int start_index = 0;
-    point2d_int start_point;
-    start_point = getLocationFromIndex(start_index);
-    cell start, neighbor_cell;
+    
+    point2d_int start_point = getStart();
+    point2d_int goal_point = {goalposeX, goalposeY};
+
+    cell start;
     start.location = start_point;
     start.g_value = 0;
     start.f_value = 0;
+    int start_index = getIndexFromLocation(start_point);
+    // cout << start_index << endl;
 
-    
+    //cell goalCell = initGoalCell()
+    //cell startCell = initStartCell()
+    // int currentX, currentY;
 
     OPEN.push(start);
-    PARENT[start_index] = start_index;
+    PARENT[start_index] = -1;
 
     while(!OPEN.empty()) {
+        // cout << "I am here in a star" << endl;
+
         cell best = OPEN.top();
         OPEN.pop();
 
-        robotposeX = best.location.x;
-        robotposeY = best.location.y;
+        // robotposeX = best.location.x;
+        // robotposeY = best.location.y; //gadbad hai check karo // make current cell thing
+        // currentX = best.location.x;
+        // currentY = best.location.y;
 
-        if (getIndexFromLocation(best.location) == getIndexFromLocation(goal_point)){
-            break;
+
+        // cout << "Best Location X = " << best.location.x << " Best Location Y = " << best.location.y << endl;
+        // cout << "Best Location Index = " << getIndexFromLocation(best.location) << endl;
+        
+        if (CLOSED[getIndexFromLocation(best.location)] == true)
+        {
+            continue;
         }
 
         CLOSED[getIndexFromLocation(best.location)] = true;
 
+
         for (auto &neighbor : getNeighbors(best.location))
         {
-            int n_row = neighbor.first;
-            int n_col = neighbor.second;
-            neighbor_cell.location = {n_row, n_col};
+            int n_row = neighbor.location.x;
+            int n_col = neighbor.location.y;
+
+            if (CLOSED[getIndexFromLocation(neighbor.location)] == true) continue;
+
+            // cout << "n row = " << n_row << endl;
+            // cout << "n col = " << n_col << endl;
+            // neighbor_cell.location = {n_row, n_col};
+            // cout << "I am here inside neighbors loop help" << endl;
+
             // cell neighbor_cell = getCell(n_row, n_col);
             //Check if cell has been visited or not
             //Col vs row order??
-            if (CLOSED[getIndexFromLocation({n_row, n_col})])
-            {
-                continue;
-            }
+            // if (CLOSED[getIndexFromLocation({n_row, n_col})])
+            // {
+            //     continue;
+            // }
+
             int new_cost = best.g_value + getMapValue(n_row, n_col);
-            if (new_cost < neighbor_cell.g_value)
+            
+            // cout << "New Cost = " << new_cost << endl;
+            // cout << "Neighbor G Value = " << neighbor_cell.g_value << endl;
+            if (new_cost < neighbor.g_value)
             {
-                neighbor_cell.g_value = new_cost;
-                neighbor_cell.f_value = neighbor_cell.g_value + getHeuristic(n_row, n_col);
-                neighbor_cell.in_open_list = true;
-                OPEN.push(neighbor_cell);
-                PARENT[getIndexFromLocation(neighbor_cell.location)] = getIndexFromLocation(best.location);
+                neighbor.g_value = new_cost;
+                neighbor.f_value = neighbor.g_value + getHeuristic(n_row, n_col);
+                neighbor.in_open_list = true; //repeated
+                PARENT[getIndexFromLocation(neighbor.location)] = getIndexFromLocation(best.location);
+                        //child                                         //parent
+                OPEN.push(neighbor);
+                // cout << "I am inside the new cost updates" << endl;
+                // delete &neighbor_cell;
             }
             
+        }
+        
+        if (getIndexFromLocation(best.location) == getIndexFromLocation(goal_point)){
+            break;
         }
 
 
     }
+    
+
+}
+
+point2d_int Search::astarExecute()
+{
+    point2d_int nextLoc;
+    astar();
+    std::vector<int> path = getPath();
+    // cout << "PATH SIZE = " << path.size() << endl;
+    nextLoc = getLocationFromIndex(path.front());
+    
+    // nextLoc.x = path.front().first;
+    // nextLoc.y = path.front().second;
+    print_map();
+    return nextLoc;
 
 }
 
@@ -342,23 +477,58 @@ static void planner(
         double* action_ptr
         )
 {
+
+    // Search search(map);
+    
+
     // 8-connected grid
-    int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
-    int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
+    // int dX[NUMOFDIRS] = {-1, -1, -1,  0,  0,  1, 1, 1};
+    // int dY[NUMOFDIRS] = {-1,  0,  1, -1,  1, -1, 0, 1};
     
     // for now greedily move towards the final target position,
     // but this is where you can put your planner
 
-    int goalposeX = (int) target_traj[target_steps-1];
-    int goalposeY = (int) target_traj[target_steps-1+target_steps];
-    // printf("robot: %d %d;\n", robotposeX, robotposeY);
-    // printf("goal: %d %d;\n", goalposeX, goalposeY);
+    int goalposeX = (int) target_traj[target_steps - 1];
+    int goalposeY = (int) target_traj[target_steps - 1 + target_steps];
+
+    Search search(map,
+                  collision_thresh,
+                  x_size, y_size, 
+                  robotposeX, 
+                  robotposeY, 
+                  target_steps,
+                  target_traj,
+                  goalposeX,
+                  goalposeY,
+                  curr_time);
+
+
+    point2d_int next = search.astarExecute();
+    
+    cout << "Next X = " << next.x << endl;
+    cout << "Next Y = " << next.y << endl;
+    // cout << "target steps = " << target_steps << endl;
+    // cout << "target pose X = " << targetposeX << endl;
+    // cout << "goal pose X = " << goalposeX << endl;
+
+    // std::cout << path << std::endl;
+
+    // int x = path.front().first;
+    // int y = path.front().second;
+
+    // std::cout << x << std::endl;
+    // std::cout << y << std::endl;
+
+    printf("robot: %d %d;\n", robotposeX, robotposeY);
+    printf("goal: %d %d;\n", goalposeX, goalposeY);
 
     struct point2d_int r;
     r = greedy(map, collision_thresh, robotposeX, robotposeY, goalposeX, goalposeY, x_size, y_size);
 
-    action_ptr[0] = r.x;
-    action_ptr[1] = r.y;
+    cout << "Action Pointer Set" << endl;
+
+    action_ptr[0] = next.x;
+    action_ptr[1] = next.x;
     
     return;
 }
