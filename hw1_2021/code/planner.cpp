@@ -12,6 +12,7 @@
 #include <vector>
 #include <chrono>
 #include <algorithm>
+#include <time.h>
 
 
 using namespace std;
@@ -125,9 +126,16 @@ int dY_3D[NUMOFDIRS+1] = {-1,  0,  1, -1,  1, -1, 0, 1, 0};
 
 //A-star
 priority_queue<Cell, vector<Cell>, f_value_compare> OPEN;
+priority_queue<Cell, vector<Cell>, f_value_compare> OPEN3D;
 unordered_map<int, bool> CLOSED;
+unordered_map<int, bool> CLOSED3D;
 unordered_map<int, int> PARENT;
+unordered_map<int, int> PARENT3D;
+
 pair<int, int> goal;
+bool goal_found = false;
+vector<int> astarPath;
+vector<int> astarPath3D;
 
 
 //Forward Dijkstra
@@ -144,12 +152,26 @@ unordered_map<int, bool> EXPANDED_DB;
 // unordered_map<int, int> OPTIMAL_G_VAL;
 // unordered_map<int, int> ROBOT_STEPS;
 
-pair<int,int> getLocationFromIndex(int index, int x_size, int y_size)
+pair<int,int> getLocationFromIndex2D(int index, int x_size, int y_size)
 {
     pair<int, int> p;
     p.first = (int)(index % x_size) + 1;
     p.second = (int)(index / x_size) + 1;
     return p;
+}
+
+int getIndexFromLocation3D(int x, int y, int t, int x_size, int y_size)
+{
+    return (t * x_size * y_size) + ((y-1) * x_size) + x-1;
+}
+pi getLocationFromIndex3D(int index, int x_size, int y_size)
+{
+    pi point3D;
+    point3D.second = index / (x_size * y_size);
+    index -= (point3D.second * x_size * y_size);
+    point3D.first.second = index / x_size + 1;
+    point3D.first.first = index % x_size + 1;
+    return point3D;
 }
 
 int getEuclidHeuristic(int x, int y, int goalposeX, int goalposeY)
@@ -214,8 +236,9 @@ void DijkstraForward(double *map, int collision_thresh, int x_size, int y_size, 
 
     Cell target = Cell(robotposeX, robotposeY);
     target.h_value = 0;
-    HEURISTIC_DF[GETMAPINDEX(target.x, target.y, x_size, y_size)] = 0;
-    ROBOT_STEPS[GETMAPINDEX(target.x, target.y, x_size, y_size)] = target.t_fdijkstra;
+    
+    HEURISTIC_DF[GETMAPINDEX(target.x, target.y, x_size, y_size)] = 0; //G-VALUES
+    ROBOT_STEPS[GETMAPINDEX(target.x, target.y, x_size, y_size)] = target.t_fdijkstra; //T-VALUE
     OPEN_DF.push(target);
 
     while(!OPEN_DF.empty())
@@ -254,6 +277,7 @@ void DijkstraForward(double *map, int collision_thresh, int x_size, int y_size, 
                         neighbor_cell.t_fdijkstra = t;
                         ROBOT_STEPS[neighbor_idx] = neighbor_cell.t_fdijkstra;
                         // ROBOT_STEPS[neighbor_idx] = s.robot_count + 1;
+
                         neighbor_cell.h_value = new_cost;
                         OPEN_DF.push(neighbor_cell);
                     }
@@ -293,20 +317,26 @@ pair<int,int> getOptimalGoal(double *map, int collision_thresh, int x_size, int 
         int time = ROBOT_STEPS[target_idx];
         // target_cell.g_value_fdijkstra = h_val;
         target_cell.t_fdijkstra = time;
-
-        // cout << "TIME = " << time << endl;
-        if (time <= i + time_buffer)
+        
+        // cout << "TIME = " << time << " : " << i << endl;
+        if (time + time_buffer<= i)
         {
+            
 
             target_cell.g_value_fdijkstra = h_val + (i - time);
-            cout << "X Target = " << xtarget << " Y Target = " << ytarget << " HVAL = " << target_cell.g_value_fdijkstra << endl;
+            // cout << "X Target = " << xtarget << " Y Target = " << ytarget << " HVAL = " << target_cell.g_value_fdijkstra << endl;
             pi cell_we_want = make_pair(make_pair(xtarget, ytarget),target_cell.g_value_fdijkstra);
             TARGET_G_VAL.push(cell_we_want);
             // Cell goalCell = TARGET_G_VAL.top();
             // TARGET_G_VAL.pop();
             target_g_val[i] = target_cell.g_value_fdijkstra;
-
+            goal_found = true;
         }
+        else
+        {
+            goal_found = false;
+        }
+
 
     }
     // Cell goalCell = TARGET_G_VAL.top();
@@ -318,14 +348,15 @@ pair<int,int> getOptimalGoal(double *map, int collision_thresh, int x_size, int 
 
     // goalPos.first = goalCell.x;
     // goalPos.second = goalCell.y;
-
-    goalPos.first = goalPair.first.first;
-    goalPos.second = goalPair.first.second;
-
+    if(goal_found = true)
+    {
+        goalPos.first = goalPair.first.first;
+        goalPos.second = goalPair.first.second;
+    }
     return goalPos;
 
 }
-pair<int,int> aStar3D(double* map,
+pi aStar3D(double* map,
                     int collision_thresh,
                     int x_size,
                     int y_size,
@@ -334,27 +365,30 @@ pair<int,int> aStar3D(double* map,
                     int goalposeX,
                     int goalposeY,
                     int target_steps,
-                    int curr_time)
+                    int curr_time,
+                    int epsilon)
 {
 
     Cell start_cell = Cell(robotposeX, robotposeY, curr_time);
-    int start_idx = GETMAPINDEX(start_cell.x, start_cell.y, x_size, y_size);
+    int start_2d_idx = GETMAPINDEX(start_cell.x, start_cell.y, x_size, y_size);
+    int start_3d_idx = getIndexFromLocation3D(start_cell.x, start_cell.y, start_cell.t, x_size, y_size);
 
     start_cell.g_value = 0;
-    start_cell.f_value = HEURISTIC_DB[start_idx];
+    start_cell.f_value = epsilon*HEURISTIC_DB[start_2d_idx];
 
-    OPEN.push(start_cell);
-    PARENT[start_idx] = -1;
+    OPEN3D.push(start_cell);
+    PARENT3D[start_3d_idx] = -1;
 
 
     while(!OPEN.empty())
     {
-        Cell best = OPEN.top();
-        OPEN.pop();
+        Cell best = OPEN3D.top();
+        OPEN3D.pop();
 
-        if (CLOSED[GETMAPINDEX(best.x, best.y, x_size, y_size)] == true) continue;
+        int best_3d_idx = getIndexFromLocation3D(best.x, best.y, best.t, x_size, y_size);
+        if (CLOSED3D[best_3d_idx] == true) continue;
         
-        CLOSED[GETMAPINDEX(best.x, best.y, x_size, y_size)] = true;
+        CLOSED3D[best_3d_idx] = true;
 
         if (best.x == goalposeX && best.y == goalposeY)
         {
@@ -368,12 +402,13 @@ pair<int,int> aStar3D(double* map,
             int newy = best.y + dY_3D[dir];
             int time = best.t + 1;
             Cell neighbor_cell = Cell(newx, newy, time);
-            int neighbor_idx = GETMAPINDEX(newx,newy,x_size,y_size);
-            if(CLOSED[neighbor_idx] ==true) continue;
+            int neighbor_2d_idx = GETMAPINDEX(newx,newy,x_size,y_size);
+            int neighbor_3d_idx = getIndexFromLocation3D(newx, newy, time, x_size, y_size);
+            if(CLOSED3D[neighbor_3d_idx] ==true) continue;
                     
-            if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size && curr_time <= target_steps)
+            if (newx >= 1 && newx <= x_size && newy >= 1 && newy <= y_size && time <= target_steps) //check (curr_time <= target_steps)
             {
-                int map_value = (int)map[neighbor_idx];
+                int map_value = (int)map[neighbor_2d_idx];
                 if ((map_value >= 0) && (map_value < collision_thresh))  //if free
                 {
                     
@@ -385,11 +420,12 @@ pair<int,int> aStar3D(double* map,
                     {
                         neighbor_cell.g_value = new_cost;
                         // neighbor_cell.f_value = neighbor_cell.g_value + 100*getEuclidHeuristic(neighbor_cell.x, neighbor_cell.y, goalposeX, goalposeY);
-                        neighbor_cell.f_value = neighbor_cell.g_value + (HEURISTIC_DB[neighbor_idx]);
+                        neighbor_cell.f_value = neighbor_cell.g_value + epsilon*(HEURISTIC_DB[neighbor_2d_idx]);
                         neighbor_cell.t = best.t + 1;
 
                         OPEN.push(neighbor_cell);
-                        PARENT[neighbor_idx] = GETMAPINDEX(best.x,best.y,x_size,y_size);
+                        // PARENT3D[neighbor_3d_idx] = GETMAPINDEX(best.x,best.y,x_size,y_size);
+                        PARENT3D[neighbor_3d_idx] = best_3d_idx;
                     }
                 }
             }
@@ -397,17 +433,19 @@ pair<int,int> aStar3D(double* map,
 
     } 
 
-    int current_index = GETMAPINDEX(goalposeX,goalposeY,x_size,y_size);
+    int current_2d_index = GETMAPINDEX(goalposeX,goalposeY,x_size,y_size);
+    int current_3d_index = getIndexFromLocation3D(goalposeX, goalposeY, HEURISTIC_DF[current_2d_index], x_size, y_size);
 
-    vector <int> path;
+    vector <int> path3D;
     
-    while(current_index != start_idx)
+    while(current_3d_index != start_3d_idx)
     {
-        path.push_back(current_index);
-        current_index = PARENT[current_index];
+        path3D.push_back(current_3d_index);
+        astarPath3D.push_back(current_3d_index);
+        current_3d_index = PARENT[current_3d_index];
     }
     
-    return getLocationFromIndex(path.back(), x_size, y_size);
+    return getLocationFromIndex3D(path3D.back(), x_size, y_size);
 
 }
 
@@ -418,13 +456,14 @@ pair<int,int> aStar(double* map,
                     int robotposeX, 
                     int robotposeY,
                     int goalposeX,
-                    int goalposeY)
+                    int goalposeY,
+                    int epsilon)
 {
 
     Cell start_cell = Cell(robotposeX, robotposeY);
     int start_idx = GETMAPINDEX(start_cell.x, start_cell.y, x_size, y_size);
     start_cell.g_value = 0;
-    start_cell.f_value = 100*HEURISTIC_DB[start_idx]; //check
+    start_cell.f_value = epsilon*HEURISTIC_DB[start_idx]; //check
 
     OPEN.push(start_cell);
     PARENT[start_idx] = -1;
@@ -467,8 +506,8 @@ pair<int,int> aStar(double* map,
                     if (neighbor_cell.g_value > new_cost)
                     {
                         neighbor_cell.g_value = new_cost;
-                        // neighbor_cell.f_value = neighbor_cell.g_value + 100*getEuclidHeuristic(neighbor_cell.x, neighbor_cell.y, goalposeX, goalposeY);
-                        neighbor_cell.f_value = neighbor_cell.g_value + 100*(HEURISTIC_DB[neighbor_idx]);
+                        // neighbor_cell.f_value = neighbor_cell.g_value + epsilon*getEuclidHeuristic(neighbor_cell.x, neighbor_cell.y, goalposeX, goalposeY);
+                        neighbor_cell.f_value = neighbor_cell.g_value + epsilon*(HEURISTIC_DB[neighbor_idx]);
                         // neighbor_cell.t = best.t + 1;
 
                         OPEN.push(neighbor_cell);
@@ -487,10 +526,12 @@ pair<int,int> aStar(double* map,
     while(current_index != start_idx)
     {
         path.push_back(current_index);
+        astarPath.push_back(current_index);
+
         current_index = PARENT[current_index];
     }
     
-    return getLocationFromIndex(path.back(), x_size, y_size);
+    return getLocationFromIndex2D(path.back(), x_size, y_size);
 
 }
 
@@ -565,6 +606,7 @@ static void planner(
 
     int goalposeX = (int) target_traj[target_steps-1];
     int goalposeY = (int) target_traj[target_steps-1+target_steps];
+    
 
 
 
@@ -572,14 +614,26 @@ static void planner(
     // unordered_map<int, int> HEURISTIC_D;
     // goal.first = goalposeX;
     // goal.second = goalposeY;
+    
+    if(target_steps == 1)
+    {
+    goal.first = goalposeX;
+    goal.second = goalposeY;
+    }
 
     if (curr_time == 0) 
     {
-
-        goal = getOptimalGoal(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, target_steps, target_traj);
-        cout << "GOALX = " << goal.first << " GOAY = " << goal.second << endl;
+        // astarPath = vector<int>;
+        // astarPath3D = vector<int>;
+        clock_t time = clock();
+        
+        if(target_steps!=1) goal = getOptimalGoal(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, target_steps, target_traj);
+        // goal.first = goalposeX;
+        // goal.second = goalposeY;
+        
+        cout << "GOALX = " << goal.first << " GOALY = " << goal.second << endl;
         DijkstraBackwardHeuristic(map, collision_thresh, x_size, y_size, goal.first, goal.second);
-
+        
         // auto it = HEURISTIC_D.begin();
         // cout << it->first << " : " << it->second << endl;
         // for (auto const &pair: HEURISTIC_D)
@@ -587,6 +641,12 @@ static void planner(
             // cout << pair.first << " : " << pair.second << endl;
         // }
     // cout << HEURISTIC_D << endl;
+
+        // pi nextAction = aStar3D(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, goal.first, goal.second, target_steps, curr_time, 100);
+        pair<int,int> nextAction = aStar(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, goal.first, goal.second, 100);
+        time = clock() - time;
+        cout << "Time Taken to Precompute Goal and run A-Star = " << ((float)time)/CLOCKS_PER_SEC << " secs" << endl;
+
     }
 
 
@@ -601,18 +661,33 @@ static void planner(
     {
         action_ptr[0] = robotposeX;
         action_ptr[1] = robotposeY;
-        cout << "REACHED" << endl;
+        // cout << "REACHED" << endl;
         return;   
     }
+
     
     // cout << "GOALX = " << goal.first << " GOAY = " << goal.second << endl;
 
-    pair<int,int> nextAction = aStar(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, goal.first, goal.second);
-    // pair<int,int> nextAction = aStar3D(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, goal.first, goal.second, target_steps, curr_time);
+    // pair<int,int> nextAction = aStar(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, goal.first, goal.second);
+    // pair<int,int> nextAction = aStar3D(map, collision_thresh, x_size, y_size, robotposeX, robotposeY, goal.first, goal.second, target_steps, curr_time, 100);
 
 
-    action_ptr[0] = nextAction.first;
-    action_ptr[1] = nextAction.second;
+    // action_ptr[0] = nextAction.first;
+    // action_ptr[1] = nextAction.second;
+
+    int pos = astarPath.back();
+    pair<int,int> action = getLocationFromIndex2D(pos, x_size, y_size);
+    astarPath.pop_back();
+
+    // int pos3D = astarPath3D.back();
+    // pi action3D = getLocationFromIndex3D(pos3D, x_size, y_size);
+    // astarPath3D.pop_back();
+
+    action_ptr[0] = action.first;
+    action_ptr[1] = action.second;
+
+    // action_ptr[0] = action3D.first.first;
+    // action_ptr[1] = action3D.first.second;
     
     return;
 }
