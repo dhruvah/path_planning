@@ -5,6 +5,17 @@
  *=================================================================*/
 #include <math.h>
 #include "mex.h"
+#include <stdio.h>
+#include <iostream>
+#include <unordered_map>
+#include <queue>
+#include <vector>
+#include <chrono>
+#include <algorithm>
+#include <time.h>
+#include <list>
+
+using namespace std;
 
 /* Input Arguments */
 #define	MAP_IN      prhs[0]
@@ -146,8 +157,6 @@ int get_next_point(bresenham_param_t *params)
   return 1;
 }
 
-
-
 int IsValidLineSegment(double x0, double y0, double x1, double y1, double*	map,
 		   int x_size,
  		   int y_size)
@@ -205,6 +214,614 @@ int IsValidArmConfiguration(double* angles, int numofDOFs, double*	map,
 	}    
     return 1;
 }
+
+
+struct dist_compare
+{
+  bool operator()(const State* s1, const State* s2)
+  {
+    return s1->distance > s2->distance;
+  }
+}
+
+class State
+{
+  // Represents information about a particular robot configuration
+    public:
+
+    double *angles;
+    int configID;
+    int componentID = -1;
+    priority_queue<State*, vector<State*>, dist_compare> neighbors;
+
+    vector <State*> neighborhood; //knn
+    vector <State*> edges; //edges of graph
+    double f_value;
+    double g_value;
+    State* parent;
+
+    double q_cost;
+    double distance;
+
+    State(){};
+
+    State(double *angles)
+    {
+      this->angles = angles;
+    };
+
+
+};
+
+struct f_value_compare
+{
+  bool operator()(const State* s1, const State* s2)
+  {
+    return s1->f_value > s2->f_value;
+  }
+};
+
+class ProbabilisticRoadmap
+{
+    public:
+
+    int N = 1000; //number of samples
+    double* map;
+    int x_size;
+    int y_size;
+    double* armstart_anglesV_rad;
+    double* armgoal_anglesV_rad;
+    int numofDOFs;
+    double ***plan;
+    int *planlength;
+
+    vector <State*> graph;
+    vector <State*> path;
+
+    ProbabilisticRoadmap(){}
+    ProbabilisticRoadmap(double* map, int x_size, int y_size, int numofDOFs)
+    {
+      this->map = map;
+      this->x_size = x_size;
+      this->y_size = y_size;
+      this->numofDOFs = numofDOFs;
+
+    }
+
+
+    //generates a random valid configuration state
+    State* RandomConfig()
+    {
+      double *angles = new double[numofDOFs];
+      
+      for (int i = 0; i < numofDOFs; i++)
+      {
+        angles[i] = ((double) rand() / (RAND_MAX))*2*PI;
+      }
+
+      State* q = new State(angles);
+      return q;
+    }
+
+    //Computes Distance between two states
+    double Distance(State* p, State* q)
+    {
+      double distance = 0;
+      for(int i = 0; i < numofDOFs; ++i)
+      {
+        distance += pow(p->angles[i] - q->angles[i], 2);
+      }
+      return sqrt(distance);
+    }
+
+    //Adds Statest in neighborhood to the State
+    void Neighborhood(State* &q)
+    {
+      //priority queue
+      //top k
+      //neighborhood can just be the priority queue
+
+      double radius = PI/2;
+      double dist;
+      //i < K-Neighbors
+      for(int i = 0; i < graph.size(); i++)
+      {
+        dist = Distance(q, graph[i]);
+        if (dist < radius)
+        {
+          // radius = dist;
+          q->neighborhood.push_back(graph[i]);
+        }
+      }  
+    }
+
+    bool Connect(State *p, State *q)
+    {
+      double distance = Distance(p, q);
+      int numofsamples = (int)(distance/(PI/20));
+      if(numofsamples < 2){
+        return true;
+      }
+
+    for (int i = 0; i < numofsamples; i++){
+
+      double *angles = new double[numofDOFs]; 
+      for(int j = 0; j < numofDOFs; j++){
+          angles[j] = p->angles[j] + ((double)(i)/(numofsamples-1))*(q->angles[j] - p->angles[j]);
+      }
+      if(!IsValidArmConfiguration(angles, numofDOFs, map, x_size, y_size))
+      {
+        return false;
+      }
+    }
+    return true;    
+    
+    }
+
+    //Makes the Roadmap
+    void RoadMap()
+    {
+      int i = 0; //0th sample
+      int componentID = 0;
+      State *q;
+
+
+      while (i < N)
+      {
+        q = RandomConfig();
+        i = i+1;
+        if (!IsValidArmConfiguration(q->angles, numofDOFs, map, x_size, y_size))
+        {
+          continue;
+        }
+        q->configID = graph.size();
+        graph.push_back(q);
+        // i = i + 1;
+        Neighborhood(q);
+        
+        if(q->neighborhood.empty())
+        {
+          q->componentID = componentID;
+          componentID++;
+          continue;
+        }
+        for (int j = 0; j<=q->neighborhood.size(); j++)
+        {
+          State* n = q->neighborhood[j];
+          if(!(q->componentID == n->componentID))
+          {
+            if(Connect(q, n))
+            {
+              q->componentID = n->componentID;
+              q->edges.push_back(n);
+              for(int k; k <= q->edges.size(); k++)
+              {
+                q->edges[k]->componentID = q->componentID;
+              }
+            }
+          }
+        } 
+      }
+    }
+
+    //returns closest state to input state
+    State* ClosestState(State* state)
+    {
+      State* closest = new State;
+      double dist = 10000;
+      for(int i = 0; i < graph.size(); i++)
+      {
+        double distance = Distance(state, graph[i]);
+        if(distance < dist)
+        {
+          dist = distance;
+          closest = graph[i];
+        }
+      }
+      return closest;
+    }
+    //Connect Start and Goal Position to Roadmap
+    void ConnectStartandGoal(State *start, State *goal)
+    {
+      graph.push_back(start);
+      State *closest_to_start = ClosestState(start);
+      start->componentID = closest_to_start->componentID;
+      start->configID = graph.size();
+      start->edges.push_back(closest_to_start);
+      
+      graph.push_back(goal);
+      State *closest_to_goal = ClosestState(goal);
+      goal->componentID = closest_to_goal->componentID;
+      goal->configID = graph.size();
+      goal->edges.push_back(closest_to_goal);
+
+    }
+
+    //Query graph using A-star
+    void Query(State *start, State *goal)
+    {
+      double weight = 1;
+      priority_queue<State*, vector<State*>, f_value_compare> OPEN;
+      unordered_map<int, bool> CLOSED;
+      start->g_value = 0;
+      start->f_value = -1;
+
+      OPEN.push(start);
+      
+      while (!OPEN.empty())
+      {
+        State *best = OPEN.top();
+        OPEN.pop();
+
+        if (CLOSED[best->configID] == true) continue;
+        CLOSED[best->configID] = true;
+
+        if(best->configID == goal->configID)
+        {
+          break;
+        }
+        
+        for(int i = 0; i < best->edges.size(); i++)
+        {
+          State *neighbor = best->edges[i];
+          if(CLOSED[neighbor->configID] == true) continue;
+          
+          double distance = Distance(best, neighbor);
+          double new_cost = best->g_value + distance;
+
+          if(neighbor->g_value > new_cost)
+          {
+            neighbor->g_value = new_cost;
+            neighbor->f_value = new_cost + weight*distance;
+            OPEN.push(neighbor);
+            neighbor->parent = best;
+          }
+
+        }
+
+      }
+
+      State *current = goal;
+      while(!current->configID != start->configID)
+      {
+        path.push_back(current);
+        current = current->parent;
+      }
+      
+      return;
+    }
+
+};
+
+class RRTs: public ProbabilisticRoadmap
+{
+  public:
+  double epsilon = 0.5;
+  int N = 10000;
+
+  double* map;
+  int x_size;
+  int y_size;
+  double* armstart_anglesV_rad;
+  double* armgoal_anglesV_rad;
+  int numofDOFs;
+  double ***plan;
+  int *planlength;  
+  
+  vector <State*> tree;
+  vector <State*> RRTpath;
+  vector <State*> Ts, Tg;
+
+  RRTs(){}
+
+  RRTs(double* map, int x_size, int y_size, int numofDOFs)
+  {
+    this->map = map;
+    this->x_size = x_size;
+    this->y_size = y_size;
+    this->numofDOFs = numofDOFs;
+  }
+  
+  //returns closest state to input state
+  State* RRTClosestState(State* state, vector<State*> &T)
+  {
+    State* closest = new State;
+    double dist = 10000;
+    for(int i = 0; i < T.size(); i++)
+    {
+      double distance = Distance(state, graph[i]);
+      if(distance < dist)
+      {
+        dist = distance;
+        closest = graph[i];
+      }
+    }
+    return closest;
+  }
+
+  State* RRTRandomConfig()
+  {
+    double prob = ((double) rand() / (RAND_MAX));
+    
+    if(prob < 0.9)
+    {
+    double *angles = new double[numofDOFs];
+    
+
+    for (int i = 0; i < numofDOFs; i++)
+    {
+      angles[i] = ((double) rand() / (RAND_MAX))*2*PI;
+    }
+
+    State* q = new State(angles);
+    return q;
+    }
+    else
+    {
+      State *qgoal = new State(armgoal_anglesV_rad);
+      return qgoal;
+    }
+
+  }  
+
+  State* NewConfig(State* qnear, State *q)
+  {
+    double distance = Distance(qnear, q);
+    State* qnew = new State;
+    
+    int steps = (int)(distance/epsilon);
+    if(steps < 2)
+    {
+      return q;
+    }
+    else
+    {
+      double *direction = new double[numofDOFs]; 
+      for(int j = 0; j < numofDOFs; j++)
+      {
+          direction[j] = ((q->angles[j] - qnear->angles[j])/distance);
+          qnew->angles[j] = qnear->angles[j] + epsilon*direction[j]; 
+      }
+      
+     
+    }
+
+    return qnew;
+  }
+
+
+
+  void BuildRRT(State *start, State *end)
+  {
+     clock_t t1 = clock();
+     int i = 0;
+     start->configID = tree.size();
+     tree.push_back(start);
+    //  State *goal;
+     
+     while(i<N)
+     {
+
+      State *qrand = RRTRandomConfig();
+      i = i + 1;
+      // if (!IsValidArmConfiguration(qrand->angles, numofDOFs, map, x_size, y_size))
+      // {
+      //   continue;
+      // }
+
+      // qrand->configID = tree.size();
+
+      //Extend
+
+      State *qnear = RRTClosestState(qrand, tree);
+      // tree.push_back(qnear);
+      // qnear->configID = tree.size();
+      
+      State *qnew = NewConfig(qnear, qrand);
+      if (!IsValidArmConfiguration(qnew->angles, numofDOFs, map, x_size, y_size))
+      {
+        continue;
+      }
+
+      qnew->configID = tree.size();
+      qnear->edges.push_back(qnew);
+      qnew->parent = qnear;
+      tree.push_back(qnew);
+
+      if(Distance(qnew, end) <= 0.5)
+      {
+        // goal = qnew;
+        end->parent = qnew;
+        break;
+      }       
+     }
+     
+     State *current = end;
+     while(!current->configID != start->configID)
+     {
+      RRTpath.push_back(current);
+      current = current->parent;
+     }
+      
+    return;
+
+  }
+
+  bool CONNECT(State* qnew, vector<State*> &T)
+  {
+    State *qnearG = RRTClosestState(qnew, T);
+    bool reached = false;
+
+    while(!reached)
+    {
+      State *qnewG = NewConfig(qnearG, qnew);
+      if (!IsValidArmConfiguration(qnewG->angles, numofDOFs, map, x_size, y_size))
+      {
+        return false;
+        break;
+      }
+      qnewG->configID = T.size();
+      qnewG->parent = qnearG;
+      T.push_back(qnewG);
+
+      if(Distance(qnewG, qnew) <= 0.5)
+      {
+        reached = true;
+        break;
+      }
+      qnearG = qnewG;
+
+    }
+
+
+  }  
+  
+  void BuildRRTConnect(State *start, State *end)
+  {
+    vector<State*> TsPath;
+    vector<State*> TgPath;
+
+    bool start_tree = true;
+    int i = 0;
+    start->configID = Ts.size();
+    end->configID = Tg.size();
+
+    Ts.push_back(start);
+    Tg.push_back(end);
+
+    while(i < N)
+    {
+      State *qrand = RRTRandomConfig();
+      i = i + 1;
+
+      //Extend
+      State *qnear = RRTClosestState(qrand, Ts);
+      State *qnew = NewConfig(qnear, qrand);
+      if (!IsValidArmConfiguration(qnew->angles, numofDOFs, map, x_size, y_size))
+      {
+        continue;
+      }
+      qnew->configID = Ts.size();
+      qnew->parent = qnear;
+      Ts.push_back(qnew);
+      if(CONNECT(qnew, Tg))
+      {
+        break;
+      }
+      swap(Ts, Tg);
+      start_tree = !start_tree;
+    }
+  
+    if(!start_tree)
+    {
+      swap(Ts,Tg);
+    }
+
+    //path using Ts
+    State *currentS = Ts[Ts.size() - 1];
+    while(!currentS->configID != start->configID)
+    {
+      TsPath.push_back(currentS);
+      currentS = currentS->parent;
+    }
+
+    //path using Tg
+    State *currentG = Tg[Tg.size() - 1];
+    while(!currentG->configID != end->configID)
+    {
+      TsPath.push_back(currentG);
+      currentG = currentG->parent;
+    }
+
+    RRTpath.insert(RRTpath.begin(), Ts.begin(), Ts.end());
+    RRTpath.insert(RRTpath.end(), Tg.end(), Tg.begin());
+  }
+
+  void NearNeighbors(State* &q)
+  {
+    //priority queue
+    //top k
+    //neighborhood can just be the priority queue
+
+    double radius = PI/2;
+    double dist;
+    //i < K-Neighbors
+    for(int i = 0; i < tree.size(); i++)
+    {
+      dist = Distance(q, tree[i]);
+      tree[i]->distance = dist;
+      if (dist < radius)
+      {
+        // radius = dist;
+        q->neighbors.push(tree[i]);
+        q->neighborhood.push_back(tree[i]);
+      }
+    }  
+  }
+
+  
+  void BuildRRTstar(State *start, State *end)
+  {
+    int i = 0;
+    start->configID = tree.size();
+    tree.push_back(start);
+
+    while(i<N)
+    {
+      State *qrand = RRTRandomConfig();
+      i = i + 1;
+
+      //Extend
+
+      State *qnearest = RRTClosestState(qrand, tree);
+      State *qnew = NewConfig(qnearest, qrand);
+      qnew->q_cost = qnearest->q_cost + Distance(qnearest, qnew);
+      if (!IsValidArmConfiguration(qnew->angles, numofDOFs, map, x_size, y_size))
+      {
+        continue;
+      }
+
+      qnew->configID = tree.size();
+      qnew->parent = qnearest;
+      tree.push_back(qnew);
+
+      State *qmin = qnearest;
+      NearNeighbors(qnew);
+
+      for(int j = 0; j <= qnew->neighborhood.size(),j++)
+      {
+        State *qnear = qnew->neighborhood[i];
+        if(Connect(qnear, qnew))
+        {
+          double cost = qnear->q_cost + Distance(qnear, qnew);
+          if(cost < qnew->q_cost)
+          {
+            qmin = qnear;
+          }
+        }
+      }
+      qnew->parent = qmin;
+      for(int k = 0; k <= qnew->neighborhood.size(), k++)
+      {
+        State *qnear = qnew->neighborhood[i];
+        if(qnear->configID != qmin->configID)
+        {
+          if(Connect(qnear, qnew))
+          {
+            if(qnear->q_cost > qnew->q_cost + Distance(qnew, qnear))
+            {
+              qnear->parent = qnew->parent;
+              
+            }
+          }
+        }
+      }
+
+    }
+  }
+
+};
+
 
 static void planner(
 		   double*	map,
