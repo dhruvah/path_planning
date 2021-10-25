@@ -234,7 +234,7 @@ class State
     double g_value;
     State* parent;
 
-    double q_cost;
+    double q_cost = 0;
     double distance;
 
     State(){};
@@ -494,7 +494,7 @@ class ProbabilisticRoadmap
 
 };
 
-class RRTs: public ProbabilisticRoadmap
+class RRTs
 {
   public:
   double epsilon = PI/30.0;
@@ -637,9 +637,6 @@ class RRTs: public ProbabilisticRoadmap
      
      while(i<N)
      {
-
-
-      
       State *qrand = RRTRandomConfig();
       // cout << "ANGLES = " << qrand->angles[0] << endl;
       i = i + 1;
@@ -652,10 +649,7 @@ class RRTs: public ProbabilisticRoadmap
       // qrand->configID = tree.size();
 
       //Extend
-
       State *qnear = RRTClosestState(qrand, tree);
-
-      
 
       if(qnear->configID == start->configID)
       {
@@ -663,14 +657,7 @@ class RRTs: public ProbabilisticRoadmap
       }
       // tree.push_back(qnear);
       // qnear->configID = tree.size();
-
-      
       State *qnew = NewConfig(qnear, qrand);
-      // if(qnew == NULL)
-      // {
-      //   cout <<"I am in null" << endl;
-      //   qnew = qrand;
-      // }
 
       if (!IsValidArmConfiguration(qnew->angles, numofDOFs, map, x_size, y_size))
       {
@@ -679,13 +666,9 @@ class RRTs: public ProbabilisticRoadmap
       }
 
       qnew->configID = tree.size();
-      qnear->edges.push_back(qnew);
+      // qnear->edges.push_back(qnew);
       qnew->parent = qnear;
       tree.push_back(qnew);
-      
-
-
-      // cout << "TREE SIZE = " << tree.size() << endl;
 
       if(RRTDistance(qnew, end) <= 0.5)
       {
@@ -695,11 +678,6 @@ class RRTs: public ProbabilisticRoadmap
         // end->parent = qnew;
         break;
       }
-
-      
-      // end->parent = qnew;
-      // cout<< "I am here!" << endl;
-       
      }
 
      //Get as close as possible to qgoal 
@@ -708,8 +686,8 @@ class RRTs: public ProbabilisticRoadmap
      cout << "I am out of WHILE" << endl;
      State *current;
      current = goal;
-     cout << current->configID << endl;
-     cout << start->configID << endl;
+    //  cout << current->configID << endl;
+    //  cout << start->configID << endl;
      while(current->configID != start->configID)
      {
       RRTpath.push_back(current);
@@ -723,6 +701,7 @@ class RRTs: public ProbabilisticRoadmap
 
   }
 
+  //RRT Connect
   bool CONNECT(State* qnew, vector<State*> &T)
   {
     State *qnearG = RRTClosestState(qnew, T);
@@ -752,6 +731,7 @@ class RRTs: public ProbabilisticRoadmap
 
   }  
   
+  //Build Trees and Path for RRT-Connect
   void BuildRRTConnect(State *start, State *end)
   {
     vector<State*> TsPath;
@@ -795,53 +775,89 @@ class RRTs: public ProbabilisticRoadmap
 
     //path using Ts
     State *currentS = Ts[Ts.size() - 1];
-    while(!currentS->configID != start->configID)
+    while(currentS->configID != start->configID)
     {
       TsPath.push_back(currentS);
       currentS = currentS->parent;
     }
+    TsPath.push_back(start);
 
     //path using Tg
     State *currentG = Tg[Tg.size() - 1];
     while(currentG->configID != end->configID)
     {
-      TsPath.push_back(currentG);
+      TgPath.push_back(currentG);
       currentG = currentG->parent;
     }
+    TgPath.push_back(end);
+    reverse(TgPath.begin(), TgPath.end());
 
-    RRTpath.insert(RRTpath.begin(), Ts.begin(), Ts.end());
-    // Tg = reverse(Tg);
-    RRTpath.insert(RRTpath.end(), Tg.begin(), Tg.end());
+    RRTpath.insert(RRTpath.begin(), TgPath.begin(), TgPath.end());
+    RRTpath.insert(RRTpath.end(), TsPath.begin(), TsPath.end());
   }
 
-  void NearNeighbors(State* &q)
+  void NearNeighbors(State* &q, vector<State*> &tree)
   {
     //priority queue
     //top k
     //neighborhood can just be the priority queue
-
-    double radius = PI/2;
+    // vector<State*> neighbors;
+    double radius = PI/10;
     double dist;
     //i < K-Neighbors
     for(int i = 0; i < tree.size(); i++)
     {
+
+      if(q->configID == tree[i]->configID)
+      {
+        continue;
+      }
       dist = RRTDistance(q, tree[i]);
-      tree[i]->distance = dist;
+      // tree[i]->distance = dist;
+      // cout << "DISTANCE NNNNNNNN = " << tree[i]->distance << endl;
+      
+      // tree[i]->q_cost = tree[i]->q_cost + dist;
       if (dist < radius)
       {
         // radius = dist;
         // q->neighbors.push(tree[i]);
         q->neighborhood.push_back(tree[i]);
+        // neighbors.push_back(tree[i]);
       }
-    }  
+    } 
+    // return neighbors; 
   }
 
-  
-  void BuildRRTstar(State *start, State *end)
+  bool Connect(State* &p, State* &q)
+  {
+    double distance = RRTDistance(p, q);
+    int numofsamples = (int)(distance/(PI/20));
+    if(numofsamples < 2){
+      return true;
+    }
+
+    for (int i = 0; i < numofsamples; i++){
+
+      double *angles = new double[numofDOFs]; 
+      for(int j = 0; j < numofDOFs; j++){
+          angles[j] = p->angles[j] + ((double)(i)/(numofsamples-1))*(q->angles[j] - p->angles[j]);
+      }
+      if(!IsValidArmConfiguration(angles, numofDOFs, map, x_size, y_size))
+      {
+        return false;
+      }
+    }
+    return true;    
+
+  }
+
+  void BuildRRTStar(State *start, State *end)
   {
     int i = 0;
     start->configID = tree.size();
     tree.push_back(start);
+
+    State *goal;
 
     while(i<N)
     {
@@ -852,7 +868,8 @@ class RRTs: public ProbabilisticRoadmap
 
       State *qnearest = RRTClosestState(qrand, tree);
       State *qnew = NewConfig(qnearest, qrand);
-      qnew->q_cost = qnearest->q_cost + RRTDistance(qnearest, qnew);
+
+      // qnew->q_cost = qnearest->q_cost + RRTDistance(qnearest, qnew);
       if (!IsValidArmConfiguration(qnew->angles, numofDOFs, map, x_size, y_size))
       {
         continue;
@@ -862,39 +879,79 @@ class RRTs: public ProbabilisticRoadmap
       qnew->parent = qnearest;
       tree.push_back(qnew);
 
-      State *qmin = qnearest;
-      NearNeighbors(qnew);
+      cout << "Working Till HERE" << endl;
 
-      for(int j = 0; j <= qnew->neighborhood.size();j++)
+      State *qmin = qnearest;
+      NearNeighbors(qnew, tree);
+      cout << "NEighborhood Size = " << qnew->neighborhood.size() << endl;
+      // cout << "NEIGHBORS SIZE = " << neighbors.size() << endl;
+      //rewire
+      for(int j = 0; j < qnew->neighborhood.size();j++)
       {
-        State *qnear = qnew->neighborhood[i];
+        State *qnear = qnew->neighborhood[j];
+        // cout << "BABUA DISTANCE = " << qnear->distance << endl;
+        // cout << "COSTT = " << qnear->q_cost << endl;
         if(Connect(qnear, qnew))
         {
-          double cost = qnear->q_cost + RRTDistance(qnear, qnew);
+          double dist = RRTDistance(qnear, qnew);
+          cout << "Can Connect" << endl;
+          double cost = qnear->q_cost + dist;
+          cout << "Cost = " << cost << endl;
+          cout << "qnew Cost = " << qnew->q_cost << endl;
+          cout << "DISTTT = " << RRTDistance(qnear, qnew) << endl;
           if(cost < qnew->q_cost)
           {
+            qnew->q_cost = cost;
             qmin = qnear;
+            cout << "New qmin has been Set" << endl;
           }
         }
       }
+      cout << "HERE IS WHERE I FAIL 1" << endl;
+
       qnew->parent = qmin;
-      for(int k = 0; k <= qnew->neighborhood.size(); k++)
+      // qnew->q_cost = qmin->q_cost + RRTDistance(qmin, qnew);
+      for(int k = 0; k < qnew->neighborhood.size(); k++)
       {
-        State *qnear = qnew->neighborhood[i];
-        if(qnear->configID != qmin->configID)
-        {
-          if(Connect(qnear, qnew))
+        State *qnear1 = qnew->neighborhood[k];
+        cout << "HERE IS WHERE I FAIL" << endl;
+        if(qnear1 == qmin) continue;
+        // if(qnear1->configID != qmin->configID)
+        // {
+
+          if(Connect(qnear1, qnew))
           {
-            if(qnear->q_cost > qnew->q_cost + RRTDistance(qnew, qnear))
+            if(qnear1->q_cost > qnew->q_cost + RRTDistance(qnew, qnear1))
             {
-              qnear->parent = qnew->parent;
+              qnear1->parent = qnew;
 
             }
           }
-        }
+        // }
+      }
+      if(RRTDistance(qnew, end) <= 0.5)
+      {
+        // goal = qnew;
+        cout << "REACHED" << endl;
+        // goal = qnew;
+        // end->parent = qnew;
+        break;
       }
 
     }
+
+    goal = RRTClosestState(end, tree);
+
+    State *current;
+    current = goal;
+    while(current->configID != start->configID)
+    {
+      RRTpath.push_back(current);
+      current = current->parent;
+    }
+    RRTpath.push_back(start);
+
+    return;
   }
 
 };
@@ -965,7 +1022,48 @@ static void plannerRRT(
   State *start = new State(armstart_anglesV_rad);
   State *goal = new State(armgoal_anglesV_rad);
 
-  Object.BuildRRT(start, goal);
+  Object.BuildRRTConnect(start, goal);
+  // cout << Object.tree.size() << endl;
+  cout << Object.RRTpath.size() << endl;
+
+  int numofsamples = Object.RRTpath.size();
+
+  *plan = (double**) malloc(numofsamples*sizeof(double*));
+  for (int i = 0; i < numofsamples; i++){
+      (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+      for(int j = 0; j < numofDOFs; j++){
+          // (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
+          (*plan)[i][j] = Object.RRTpath[numofsamples - i -1]->angles[j];
+      }
+  }    
+  *planlength = numofsamples;
+
+  // *planlength = Objects.RRTpath.size();
+
+}
+
+
+
+static void plannerRRTStar(
+		   double*	map,
+		   int x_size,
+ 		   int y_size,
+       double* armstart_anglesV_rad,
+       double* armgoal_anglesV_rad,
+	     int numofDOFs,
+	     double*** plan,
+	     int* planlength)
+{
+
+  *plan = NULL;
+	*planlength = 0;
+
+  RRTs Object = RRTs(map, x_size, y_size, armstart_anglesV_rad ,armgoal_anglesV_rad, numofDOFs);
+
+  State *start = new State(armstart_anglesV_rad);
+  State *goal = new State(armgoal_anglesV_rad);
+
+  Object.BuildRRTStar(start, goal);
   cout << Object.tree.size() << endl;
   cout << Object.RRTpath.size() << endl;
 
@@ -983,10 +1081,8 @@ static void plannerRRT(
 
   // *planlength = Objects.RRTpath.size();
 
-
-  
-
 }
+
 
 //prhs contains input parameters (3): 
 //1st is matrix with all the obstacles
@@ -1043,6 +1139,11 @@ void mexFunction( int nlhs, mxArray *plhs[],
     if (planner_id == RRT)
     {
        plannerRRT(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
+    }
+
+    if (planner_id == RRTSTAR)
+    {
+      plannerRRTStar(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
     }
     
     //dummy planner which only computes interpolated path
