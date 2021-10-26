@@ -43,10 +43,10 @@ random_samples = [[0.652432 1.93125 0.860195 4.05817 0.735575]
 [0.506921 2.50711 0.754732 0.896646 0.479126]
 [1.58599 1.16138 2.83523 2.69196 1.20672]];
 
-for i = 1:20
+for i = 1
     startQ = random_samples(2*i-1, :);
     goalQ = random_samples(2*i, :);
-    runtest('map2.txt',startQ, goalQ, 0);
+    runtest('map2.txt',startQ, goalQ, 3);
     fprintf('\n');
     fprintf('\n');
 end

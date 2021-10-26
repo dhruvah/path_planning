@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <time.h>
 #include <list>
+#include <float.h>
 
 using namespace std;
 
@@ -230,8 +231,8 @@ class State
 
     vector <State*> neighborhood; //knn
     vector <State*> edges; //edges of graph
-    double f_value;
-    double g_value;
+    double f_value = 1000000.0;
+    double g_value = 1000000.0;
     State* parent;
 
     double q_cost = 0;
@@ -265,7 +266,7 @@ class ProbabilisticRoadmap
 {
     public:
 
-    int N = 1000; //number of samples
+    int N = 100000; //number of samples
     double* map;
     int x_size;
     int y_size;
@@ -277,13 +278,21 @@ class ProbabilisticRoadmap
 
     vector <State*> graph;
     vector <State*> path;
+    vector <State*> aStarPath;
 
     ProbabilisticRoadmap(){}
-    ProbabilisticRoadmap(double* map, int x_size, int y_size, int numofDOFs)
+    ProbabilisticRoadmap(double* map,
+                         int x_size, 
+                         int y_size,
+                         double* armstart_anglesV_rad,
+                         double* armgoal_anglesV_rad, 
+                         int numofDOFs)
     {
       this->map = map;
       this->x_size = x_size;
       this->y_size = y_size;
+      this->armstart_anglesV_rad = armstart_anglesV_rad;
+      this->armgoal_anglesV_rad = armgoal_anglesV_rad;
       this->numofDOFs = numofDOFs;
 
     }
@@ -309,29 +318,37 @@ class ProbabilisticRoadmap
       double distance = 0;
       for(int i = 0; i < numofDOFs; ++i)
       {
-        cout << "Angles p = " << p->angles[i] << endl;
+        // cout << "Angles p = " << p->angles[i] << endl;
         distance += (p->angles[i] - q->angles[i])*(p->angles[i] - q->angles[i]);
       }
       return sqrt(distance);
     }
 
     //Adds Statest in neighborhood to the State
-    void Neighborhood(State* &q)
+    void Neighborhood(State* &q, vector<State*> &graph)
     {
       //priority queue
       //top k
       //neighborhood can just be the priority queue
-
+      // int k = 5000;
       double radius = PI/2;
       double dist;
       //i < K-Neighbors
       for(int i = 0; i < graph.size(); i++)
       {
+        if(q->configID == graph[i]->configID)
+        {
+          continue;
+        }
         dist = Distance(q, graph[i]);
-        if (dist < radius)
+        // cout << "DISTANCEEEEE = " << dist << endl;
+        if (dist <= radius)
         {
           // radius = dist;
+          // cout << "Found a Neighbor!!  " << endl;
           q->neighborhood.push_back(graph[i]);
+
+          // if(q->neighborhood.size() == k) break;
         }
       }  
     }
@@ -362,57 +379,122 @@ class ProbabilisticRoadmap
     //Makes the Roadmap
     void RoadMap()
     {
+      cout << "I am in the Roadmap" << endl;
       int i = 0; //0th sample
       int componentID = 0;
-      State *q;
-
 
       while (i < N)
       {
+        State *q;
         q = RandomConfig();
         i = i+1;
         if (!IsValidArmConfiguration(q->angles, numofDOFs, map, x_size, y_size))
         {
           continue;
         }
+
         q->configID = graph.size();
         graph.push_back(q);
         // i = i + 1;
-        Neighborhood(q);
+        Neighborhood(q, graph);
         
+        // cout << "Neighborhood SIZE = " << q->neighborhood.size() << endl;
         if(q->neighborhood.empty())
         {
           q->componentID = componentID;
-          componentID++;
+          componentID = componentID + 1;
+          // cout << "I should be here atleast once " << endl;
           continue;
         }
-        for (int j = 0; j<=q->neighborhood.size(); j++)
+        for (int j = 0; j < q->neighborhood.size(); j++)
         {
           State* n = q->neighborhood[j];
-          if(!(q->componentID == n->componentID))
+          if(q->componentID != n->componentID)
           {
+            
+            // cout << "This is definitely Jank  " << endl;
             if(Connect(q, n))
             {
-              q->componentID = n->componentID;
+              
               q->edges.push_back(n);
-              for(int k; k <= q->edges.size(); k++)
+              q->componentID = n->componentID;
+
+              n->edges.push_back(q);
+
+
+              // cout << "Am I in here?? " << endl;
+              // cout << "EDGES SIZE = " << q->edges.size() << endl;
+              int tempsize = q->edges.size();
+
+              for(int k = 0; k < tempsize; k++)
               {
+                // cout << " BRUHH " << endl;
+                // cout <<"SIZEE OF QEDGES" << q->edges.size() << endl;
                 q->edges[k]->componentID = q->componentID;
               }
+
+            }
+            else
+            {
+              q->componentID = componentID;
+              componentID++;
             }
           }
-        } 
+        }
+
+        // for(int k = 0; k < q->edges.size(); k++)
+        // {
+        //   // cout << " BRUHH " << endl;
+
+        //   q->edges[k]->componentID = q->componentID;
+        // } 
+        // cout << "Component Vector Size = " << q->edges.size() << endl;
       }
+
+      // int freqID = 0;
+      // unordered_map<int, vector<int>> IDlist;
+
+
+      // for(int i = 0; i < graph.size(); i++)
+      // {
+        
+      //   int id = graph[i]->componentID;
+      //   // cout << " HEREERERERER" << endl;
+      //   vector<int> vect = IDlist[id];
+      //   // cout << " 11111HEREERERERER" << endl;
+      //   vect.push_back(graph[i]->configID);
+      //   IDlist[id] = vect;
+      // }
+      // int maxID = 0;
+      // int maxSize = 0;
+      // for(int i = 0; i < IDlist.size(); i++)
+      // {
+      //   int size = IDlist[i].size();
+      //   if(maxSize < size)
+      //   {
+
+      //     maxID = i;
+      //     maxSize = size;
+      //   } 
+
+      //   // cout << i << " : " << IDlist[i].size() <<endl;
+      // }
+      // cout << "MAX ID IS = " << maxID << "WITH NCO = " << maxSize<< endl;
+      
     }
 
     //returns closest state to input state
-    State* ClosestState(State* state)
+    State* ClosestState(State* state, vector<State*> &graph, int maxID)
     {
-      State* closest = new State();
+      State* closest;
       double dist = 10000;
+      
       for(int i = 0; i < graph.size(); i++)
       {
+        if(graph[i]->componentID != maxID) continue;
         double distance = Distance(state, graph[i]);
+        // cout << "Distance = " << distance << endl;
+      
         if(distance < dist)
         {
           dist = distance;
@@ -421,74 +503,167 @@ class ProbabilisticRoadmap
       }
       return closest;
     }
+
     //Connect Start and Goal Position to Roadmap
-    void ConnectStartandGoal(State *start, State *goal)
+    void ConnectStartandGoal(State* &start, State* &goal)
     {
-      graph.push_back(start);
-      State *closest_to_start = ClosestState(start);
-      start->componentID = closest_to_start->componentID;
-      start->configID = graph.size();
-      start->edges.push_back(closest_to_start);
+      // cout << "I am connecting start and goal " << endl;
+      // cout << "Idhar chala" << endl;
+
+      int freqID = 0;
+      unordered_map<int, vector<int>> IDlist;
+
+      for(int i = 0; i < graph.size(); i++)
+      {
+        
+        int id = graph[i]->componentID;
+        // cout << " HEREERERERER" << endl;
+        vector<int> vect = IDlist[id];
+        // cout << " 11111HEREERERERER" << endl;
+        vect.push_back(graph[i]->configID);
+        IDlist[id] = vect;
+      }
+      int maxID = 0;
+      int maxSize = 0;
+      for(int i = 0; i < IDlist.size(); i++)
+      {
+        int size = IDlist[i].size();
+        if(maxSize < size)
+        {
+          maxID = i;
+          maxSize = size;
+        } 
+        // cout << i << " : " << IDlist[i].size() <<endl;
+      }
+
       
+      State *closest_to_start = ClosestState(start, graph, maxID);
+      
+      graph.push_back(start);
+
+      // cout << "Udhar chala " << endl;
+      start->componentID = closest_to_start->componentID;
+      // cout << "CLOSEST STATE TO START CONFIG =  " << closest_to_start->configID << endl;
+      start->configID = graph.size();
+      cout << "START COMPONENT ID = " << start->componentID << endl;
+      start->edges.push_back(closest_to_start);
+      closest_to_start->edges.push_back(start);
+
+      State *closest_to_goal = ClosestState(goal, graph, maxID);
+      goal->parent = closest_to_goal;
       graph.push_back(goal);
-      State *closest_to_goal = ClosestState(goal);
+
       goal->componentID = closest_to_goal->componentID;
       goal->configID = graph.size();
+      // cout << "CLOSEST STATE TO GOAL CONFIG =  " << closest_to_goal->configID << endl;
+      cout << "GOAL COMPONENT ID = " << goal->componentID << endl;
       goal->edges.push_back(closest_to_goal);
+      closest_to_goal->edges.push_back(goal);
 
     }
 
     //Query graph using A-star
-    void Query(State *start, State *goal)
+    void Query(State* &start, State* &goal)
     {
+      // cout << "I am querying" << endl;
       double weight = 1;
       priority_queue<State*, vector<State*>, f_value_compare> OPEN;
       unordered_map<int, bool> CLOSED;
       start->g_value = 0;
-      start->f_value = -1;
+      start->f_value = 0;
 
       OPEN.push(start);
       
       while (!OPEN.empty())
       {
+        // cout << "Inside While of querying" << endl;
         State *best = OPEN.top();
         OPEN.pop();
 
+        // cout << "GVALUE = " << best->g_value << endl;
+
         if (CLOSED[best->configID] == true) continue;
         CLOSED[best->configID] = true;
+        // cout << "BEST CONFIG ID = " << best->configID << endl;
 
         if(best->configID == goal->configID)
         {
+          cout << "PATH FOUND" << endl;
           break;
         }
         
+        if(best->edges.size() == 0)
+        {
+          cout << "SHITTT" << endl;
+          continue;
+        }
+
         for(int i = 0; i < best->edges.size(); i++)
         {
+          // cout << "I am in the FOR LOOP " << endl;
+          // cout << "Best Edges size = " << best->edges.size() << endl;
           State *neighbor = best->edges[i];
-          if(CLOSED[neighbor->configID] == true) continue;
-          
-          double distance = Distance(best, neighbor);
-          double new_cost = best->g_value + distance;
-
-          if(neighbor->g_value > new_cost)
+          // cout << "Got the state" << endl;
+          // cout << "NEIGHBOR CONFIG ID = " << neighbor->configID << endl;
+          if(CLOSED[neighbor->configID] == true) 
           {
-            neighbor->g_value = new_cost;
-            neighbor->f_value = new_cost + weight*distance;
-            OPEN.push(neighbor);
-            neighbor->parent = best;
+            // cout << "BAPA MORIYA " << endl;
+            continue;
           }
+          
+          
+          // if(best->componentID == neighbor->componentID)
+          // {
+            // if(Connect(best, neighbor))
+            // {
+          
+              double distance = Distance(best, neighbor);
+              // cout << "DISTANCE = " << distance << endl;
+              double new_cost = best->g_value + distance;
+              // cout << "COST = " << new_cost << endl;
+              if(neighbor->g_value > new_cost)
+              {
+                neighbor->g_value = new_cost;
+                neighbor->f_value = new_cost + weight*distance;
+                neighbor->parent = best;
+                OPEN.push(neighbor);
 
+              }
+            // }
+          // }
         }
 
       }
 
+      cout << "NOW BACKTRACKING" << endl;
       State *current = goal;
       while(current->configID != start->configID)
       {
         path.push_back(current);
+        cout << "CURRENT = " << current->componentID << endl;
         current = current->parent;
       }
-      
+      path.push_back(start);
+
+      for(int l = 0; l < path.size() -1; l++)
+      {
+        aStarPath.push_back(path[l]);
+        double distance = Distance(path[l], path[l+1]);
+        int numofsamples = (int)(distance/(PI/20));
+        if(numofsamples < 2){
+          aStarPath.push_back(path[l+1]);
+        }
+
+        for (int i = 1; i < numofsamples; i++){
+
+          double *angles = new double[numofDOFs]; 
+          for(int j = 0; j < numofDOFs; j++){
+              angles[j] = path[l]->angles[j] + ((double)(i)/(numofsamples-1))*(path[l+1]->angles[j] - path[l]->angles[j]);
+          }
+          State *s = new State(angles);
+          aStarPath.push_back(s);
+        }
+      }
       return;
     }
 
@@ -883,7 +1058,7 @@ class RRTs
 
       State *qmin = qnearest;
       NearNeighbors(qnew, tree);
-      cout << "NEighborhood Size = " << qnew->neighborhood.size() << endl;
+      // cout << "NEighborhood Size = " << qnew->neighborhood.size() << endl;
       // cout << "NEIGHBORS SIZE = " << neighbors.size() << endl;
       //rewire
       for(int j = 0; j < qnew->neighborhood.size();j++)
@@ -1022,6 +1197,45 @@ static void plannerRRT(
   State *start = new State(armstart_anglesV_rad);
   State *goal = new State(armgoal_anglesV_rad);
 
+  Object.BuildRRT(start, goal);
+  // cout << Object.tree.size() << endl;
+  cout << Object.RRTpath.size() << endl;
+
+  int numofsamples = Object.RRTpath.size();
+
+  *plan = (double**) malloc(numofsamples*sizeof(double*));
+  for (int i = 0; i < numofsamples; i++){
+      (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+      for(int j = 0; j < numofDOFs; j++){
+          // (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
+          (*plan)[i][j] = Object.RRTpath[numofsamples - i -1]->angles[j];
+      }
+  }    
+  *planlength = numofsamples;
+
+  // *planlength = Objects.RRTpath.size();
+
+}
+
+static void plannerRRTConnect(
+		   double*	map,
+		   int x_size,
+ 		   int y_size,
+       double* armstart_anglesV_rad,
+       double* armgoal_anglesV_rad,
+	     int numofDOFs,
+	     double*** plan,
+	     int* planlength)
+{
+
+  *plan = NULL;
+	*planlength = 0;
+
+  RRTs Object = RRTs(map, x_size, y_size, armstart_anglesV_rad ,armgoal_anglesV_rad, numofDOFs);
+
+  State *start = new State(armstart_anglesV_rad);
+  State *goal = new State(armgoal_anglesV_rad);
+
   Object.BuildRRTConnect(start, goal);
   // cout << Object.tree.size() << endl;
   cout << Object.RRTpath.size() << endl;
@@ -1075,6 +1289,59 @@ static void plannerRRTStar(
       for(int j = 0; j < numofDOFs; j++){
           // (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
           (*plan)[i][j] = Object.RRTpath[numofsamples - i -1]->angles[j];
+      }
+  }    
+  *planlength = numofsamples;
+
+  // *planlength = Objects.RRTpath.size();
+
+}
+
+static void plannerPRM(
+		   double*	map,
+		   int x_size,
+ 		   int y_size,
+       double* armstart_anglesV_rad,
+       double* armgoal_anglesV_rad,
+	     int numofDOFs,
+	     double*** plan,
+	     int* planlength)
+{
+
+  *plan = NULL;
+	*planlength = 0;
+
+  ProbabilisticRoadmap Object = ProbabilisticRoadmap(map, x_size, y_size, armstart_anglesV_rad ,armgoal_anglesV_rad, numofDOFs);
+
+  State *start = new State(armstart_anglesV_rad);
+  State *goal = new State(armgoal_anglesV_rad);
+
+  Object.RoadMap();
+  int id = Object.graph[0]->componentID;
+  int count = 0;
+  for(int j = 0; j < Object.graph.size(); j++)
+  {
+    if(id == Object.graph[j]->componentID)
+    {
+      count++;
+    }
+    // cout << "COMPONENT ID = " << Object.graph[j]->componentID << endl;
+  }
+  cout << "COUNT = " << count << endl;
+  
+  // cout << Object.tree.size() << endl;
+  cout << "SIZE OF GRAPH = " << Object.graph.size() << endl;
+  Object.ConnectStartandGoal(start, goal);
+  Object.Query(start, goal);
+
+  int numofsamples = Object.aStarPath.size();
+
+  *plan = (double**) malloc(numofsamples*sizeof(double*));
+  for (int i = 0; i < numofsamples; i++){
+      (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
+      for(int j = 0; j < numofDOFs; j++){
+          // (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
+          (*plan)[i][j] = Object.aStarPath[numofsamples - i -1]->angles[j];
       }
   }    
   *planlength = numofsamples;
@@ -1141,9 +1408,19 @@ void mexFunction( int nlhs, mxArray *plhs[],
        plannerRRT(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
     }
 
+    if (planner_id == RRTCONNECT)
+    {
+       plannerRRTConnect(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
+    }
+
     if (planner_id == RRTSTAR)
     {
       plannerRRTStar(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
+    }
+
+    if (planner_id == PRM)
+    {
+      plannerPRM(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
     }
     
     //dummy planner which only computes interpolated path
