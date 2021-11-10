@@ -296,7 +296,7 @@ pair<int,int> getOptimalGoal(double *map, int collision_thresh, int x_size, int 
     pair<int, int> goalPos;
     goalPos.first = (int) target_traj[target_steps-1];
     goalPos.second = (int) target_traj[target_steps -1 + target_steps];
-    int time_buffer = 5;
+    int time_buffer = 0;
     
     DijkstraForward(map, collision_thresh, x_size, y_size, robotposeX, robotposeY);
     for (int i = 0; i < target_steps; ++i)
@@ -611,7 +611,7 @@ static void planner(
 
         return;   
     }
-
+    
 
     // //***Uncomment for Greedy (Map5)
     // //***Comment back if not using Greedy

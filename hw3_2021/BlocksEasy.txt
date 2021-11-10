@@ -1,0 +1,8 @@
+Symbols: A,B,C,Table
+Initial conditions: On(A,B), On(B,Table), On(C,Table), Block(A), Block(B), Block(C), Clear(A), Clear(C)
+Goal conditions: On(A,Table), Block(A), Block(B), Block(C), Clear(B)
+
+Actions:
+        MoveToTable(b,x)
+        Preconditions: On(b,x), Clear(b), Block(b), Block(x)
+        Effects: On(b,Table), Clear(x), !On(b,x)

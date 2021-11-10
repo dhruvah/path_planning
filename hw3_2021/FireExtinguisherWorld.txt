@@ -1,0 +1,28 @@
+Symbols: M,Q,Battery,T,W,W1,W2,W3,F,A,B,C,D,E
+Initial conditions: Robot(M), Quadrotor(Q), Point(A), Point(B), Point(C), Point(D), Point(E), Point(W), Point(F), Water(W1), Water(W2), Water(W3), Power(Battery), Tank(T), Location(M,A), Hover(Q,B), Low(Battery), Empty(T), Location(W1,W), Location(W2,W), Location(W3,W) 
+Goal conditions: Location(W1,F), Location(W2,F), Location(W3,F)
+
+Actions:
+       MoveRobot(x,y)
+       Preconditions: Location(M,x), Point(x), Point(y)
+       Effects: Location(M,y), !Location(M,x)
+       
+       Fly(Q,x)
+       Preconditions: On(Q,M), Location(M,x), Point(x), High(Battery)
+       Effects: Hover(Q,x), Low(Battery), !On(Q,M), !High(Battery)
+       
+       Land(x)
+       Preconditions: Hover(Q,x), Location(M,x), Point(x)
+       Effects:  On(Q,M), !Hover(Q,x)
+       
+       Charge(Battery)
+       Preconditions: Low(Battery), On(Q,M)
+       Effects: High(Battery), !Low(Battery)
+       
+       Fill(T,x)
+       Preconditions: Location(M,W), On(Q,M), Empty(T), Water(x), Location(x,W)
+       Effects: Full(T,x), !Empty(T), !Location(x,W)
+       
+       Extinguish(x)
+       Preconditions: Hover(Q,F), Point(F), Water(x), Full(T,x), Location(M,F)
+       Effects: Location(x,F), Empty(T), !Full(T,x)
