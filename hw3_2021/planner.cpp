@@ -555,7 +555,7 @@ class SymPlan
     list<GroundedAction> path;
 
     int totalSymbols;
-
+    int maxActionSymbols = 0;
     SymPlan(Env* env)
     {
         // cout << "Plan Class Object created" << endl;
@@ -564,6 +564,15 @@ class SymPlan
         // cout << "Symbols size = " << this->symbols.size() << endl;
         this->Actions = env->get_actions();
         this->totalSymbols = env->get_symbols().size();
+        for(auto &action: Actions)
+        {
+            if(maxActionSymbols < action.get_args().size())
+            {
+                maxActionSymbols = action.get_args().size();
+            }
+        }
+        // cout << "NN = " << maxActionSymbols << endl;
+        
     }
     
     void Combinations(int n, list<string> temp, list<list<string>> &perm, unordered_set<string> syms)
@@ -601,7 +610,7 @@ class SymPlan
     vector<list<list<string>>> GeneratePermutations(unordered_set<string> syms)
     {
         vector<list<list<string>>> all_permutations;
-        for (int i = 1; i <= totalSymbols; i++)
+        for (int i = 1; i <= maxActionSymbols; i++)
         {
             // cout << "iteration = " << i << endl;
             // cout << "Hello" << endl;
@@ -618,7 +627,7 @@ class SymPlan
         cout << "All Grounded Actions" << endl;
         vector<list<list<string>>> permutations = GeneratePermutations(syms);
 
-        // //print all permutations
+        //print all permutations
         // for(int i = 0; i< permutations.size(); i++)
         // {
         //     for(auto it = permutations[i].begin(); it != permutations[i].end(); it++)
@@ -637,6 +646,7 @@ class SymPlan
         for (auto &action: Actions)
         {
             int no_args = action.get_args().size()-1;
+            // cout << "Number of ARGUMENTS = " << no_args + 1 << endl;
             unordered_set<Condition, ConditionHasher, ConditionComparator> preconditions = action.get_preconditions();
             unordered_set<Condition, ConditionHasher, ConditionComparator> effects = action.get_effects();
             args = action.get_args();
@@ -689,7 +699,7 @@ class SymPlan
         }   
     }
 
-    State* GetSuccesor(GroundedAction &action, State* &state)
+    GState GetSuccesor(GroundedAction &action, State* &state)
     {
         GState newState = state->grounded_conditions;
 
@@ -708,8 +718,8 @@ class SymPlan
             }
         }
 
-        State* s = new State(newState);
-        return s;
+        // State* s = new State(newState);
+        return newState;
     }
     
     bool ValidAction(GroundedAction &action, State* &state)
@@ -736,6 +746,18 @@ class SymPlan
         return true;
     }
 
+    bool Compare(GState gconds1, GState gconds2)
+    {
+        for(GroundedCondition gc: gconds2)
+        {
+            if(gconds1.find(gc) == gconds1.end())
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     int Heuristic(State* state, State* goal)
     {
         int h = 0;
@@ -747,6 +769,18 @@ class SymPlan
             }
         }
         return h;
+    }
+
+    bool StateExists(GState gconds1, unordered_set<State*> &CLOSED)
+    {
+        for(auto it: CLOSED)
+        {
+            if(Compare(gconds1, it->grounded_conditions) && Compare(it->grounded_conditions, gconds1))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     void AStar()
@@ -777,11 +811,18 @@ class SymPlan
             State *best = OPEN.top();
             OPEN.pop();
 
-            cout << "What is best? " << best->parentAction << endl;
+            // cout << "What is best? " << best->parentAction << endl;
 
-            if(CLOSED1[best] == true) continue;
+            // if(CLOSED1[best] == true) continue;
 
-            CLOSED1[best] = true;
+            // CLOSED1[best] = true;
+            
+            if(StateExists(best->grounded_conditions, EXPLORED)) continue;
+
+            EXPLORED.insert(best);
+            // if(EXPLORED.find(best) == EXPLORED.end()) continue;
+
+            // EXPLORED.insert(best);
             // stateID++;
             
             if(CompareState(best, goalState))
@@ -797,33 +838,75 @@ class SymPlan
                 if(ValidAction(action, best))
                 {
                     // cout << "Action = " << action << endl;
-                    State* newState = GetSuccesor(action, best);
+                    GState newStateCond = GetSuccesor(action, best);
 
-                    stateID++;
-                    newState->state_id = stateID;
-                    newState->parentAction = action;
-                    
-                    for(auto it: CLOSED1)
+                    // stateID++;
+                    // newState->state_id = stateID;
+                    // newState->parentAction = action;
+
+                    // if(!EXPLORED.empty())
+                    // {
+                    //     if(!Compare(EXPLORED.find(best)))
+                    // }
+
+                    if(!StateExists(newStateCond, EXPLORED))
                     {
-                        if(CompareState(it.first, newState) && CompareState(newState, it.first))
-                        {
-
-                        }
+                        State* newState = new State(newStateCond);
+                        newState->parentAction = action;
+                        // cout << "Same State FOUND!" << endl;
+                                // continue;
+                        newState->g_val = best->g_val + 1;
+                        newState->h_val = Heuristic(newState, goalState);
+                        newState->f_val = newState->g_val + newState->h_val;
+                        newState->parent = best;
+                        OPEN.push(newState);
                     }
-                    // if(CLOSED1[newState] == true) continue;
+                    else
+                    {
+                        continue;
+                    }
                     
+                    // if(!CLOSED1.empty())
+                    // {
+                    //     for(auto it: CLOSED1)
+                    //     {
+                    //         if(!Compare(it.first->grounded_conditions, newStateCond) && !Compare(newStateCond, it.first->grounded_conditions))
+                    //         {
+                    //             State* newState = new State(newStateCond);
+                    //             newState->parentAction = action;
+                    //             cout << "Same State FOUND!" << endl;
+                    //             // continue;
+                    //             newState->g_val = best->g_val + 1;
+                    //             newState->h_val = Heuristic(newState, goalState);
+                    //             newState->f_val = newState->g_val + newState->h_val;
+                    //             newState->parent = best;
+                    //             OPEN.push(newState);
 
-                    int new_cost = best->g_val + 1;
+                    //         }
+                    //     }
+                    // }
+                    // else
+                    // {
+                    //     State* newState = new State(newStateCond);
+                    //     newState->g_val = best->g_val + 1;
+                    //     newState->h_val = Heuristic(newState, goalState);
+                    //     newState->f_val = newState->g_val + newState->h_val;
+                    //     OPEN.push(newState);
+                    // }
+                    // if(CLOSED1[newState] == true) continue;
+                    // cout << "I am HERE" << endl;
+
+                    // int new_cost = best->g_val + 1;
                     // if(newState->g_val > new_cost)
                     // {
                         
-                    newState->g_val = new_cost;
-                    newState->h_val = Heuristic(newState, goalState);
+                    // newState->g_val = best->g_val + 1;
+                    // newState->h_val = Heuristic(newState, goalState);
                         // newState->h_val = 0;
-                    newState->f_val = newState->g_val + newState->h_val;
-                    newState->parent = best;
+                    // newState->f_val = newState->g_val + newState->h_val;
+                    // newState->parent = best;
                         // cout << "New State Parent = " << newState->parent << endl;
-                    OPEN.push(newState);
+                    // OPEN.push(newState);
 
                     // }
                 }
@@ -833,11 +916,11 @@ class SymPlan
 
         cout << "Number of while loop iters = " << num << endl;
 
-        // cout << "Size of CLOSED list = " << CLOSED.size() << endl;
-        for(auto it:CLOSED1)
-        {
-            cout << "CLOSED LIST POINTERS = " << it.first << endl;
-        }
+        cout << "Size of CLOSED list = " << EXPLORED.size() << endl;
+        // for(auto it:CLOSED1)
+        // {
+        //     cout << "CLOSED LIST POINTERS = " << it.first << endl;
+        // }
         //Backtracking
         cout << "Backtracking" << endl;
         State *current_state = goalState;
@@ -1141,6 +1224,7 @@ list<GroundedAction> planner(Env* env)
     
     list<GroundedAction> actions;
 
+    clock_t begin = clock();
     // this is where you insert your planner
     SymPlan p(env);
     p.AllGroundedActions();
@@ -1151,6 +1235,10 @@ list<GroundedAction> planner(Env* env)
     // actions.push_back(GroundedAction("Move", { "C", "Table", "A" }));
     // actions.push_back(GroundedAction("Move", { "B", "Table", "C" }));
     actions = p.path;
+
+    clock_t end = clock();
+    double elapsed = double(end - begin)/CLOCKS_PER_SEC;
+    cout << "Time Taken (s) = " << elapsed << endl;
 
     return actions;
 }
